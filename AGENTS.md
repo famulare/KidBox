@@ -6,7 +6,7 @@
 - `tests/` holds pytest unit tests.
 - `assets/` is reserved for launcher icons and other static files.
 - `config.yaml` provides dev defaults (paths, palette, app commands).
-- `toddler_portal_design_contract.md` is the source of truth for product requirements.
+- `kidbox_design_contract.md` is the source of truth for product requirements.
 
 ## Build, Test, and Development Commands
 Use `uv` with the local `.venv` and a writable cache directory.

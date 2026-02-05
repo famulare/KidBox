@@ -175,6 +175,16 @@ source .venv/bin/activate
 UV_CACHE_DIR=/tmp/uv-cache uv pip install -e .[dev]
 ```
 
+## Convenience Script
+
+```bash
+./scripts/dev-run.sh
+./scripts/dev-run.sh paint
+./scripts/dev-run.sh photos
+./scripts/dev-run.sh typing
+./scripts/dev-run.sh tests
+```
+
 ---
 
 ## Running the Apps
@@ -210,3 +220,4 @@ Contributions are welcome if they respect the core design principles.
 ## License
 
 MIT
+
