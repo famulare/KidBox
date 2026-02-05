@@ -161,7 +161,7 @@ Total brushes: ~8–10
 
 ### 3.4 Color palette
 
-* Exactly **16 colors**
+* Exactly **13 colors**
 * Visible at all times
 * Large swatches
 * No picker, no RGB sliders
@@ -412,7 +412,7 @@ You can hand this directly to codegen:
 
 * Stroke engine
 * Fixed brush set
-* 16-color palette
+* 13-color palette
 * Undo stack (10)
 * Autosave
 * Thumbnail recall overlay
