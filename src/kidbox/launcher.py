@@ -58,7 +58,15 @@ def _build_buttons(apps: List[LauncherApp], screen_rect: pygame.Rect) -> List[Bu
     for idx, app in enumerate(apps):
         rect = pygame.Rect(start_x + idx * (icon_size + gap), y, icon_size, icon_size)
         image = load_image(app.icon_path, (icon_size, icon_size))
-        buttons.append(Button(rect=rect, label=app.name, image=image, fill=(245, 245, 245)))
+        buttons.append(
+            Button(
+                rect=rect,
+                label=app.name,
+                image=image,
+                fill=(245, 245, 245),
+                border_width=0,
+            )
+        )
     return buttons
 
 
@@ -102,7 +110,7 @@ def main() -> None:
         screen.fill(background)
         for app, button in zip(apps, buttons):
             if button.image is None:
-                draw_placeholder_icon(screen, button.rect, app.name)
+                draw_placeholder_icon(screen, button.rect, app.name, border_width=0)
             else:
                 button.draw(screen)
         pygame.display.flip()

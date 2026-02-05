@@ -10,6 +10,10 @@ import pygame
 
 Color = Tuple[int, int, int]
 
+_HOME_ICON_ORIG: Optional[pygame.Surface] = None
+_HOME_ICON: Optional[pygame.Surface] = None
+_HOME_ICON_SIZE: Optional[Tuple[int, int]] = None
+
 
 @dataclass
 class Button:
@@ -17,7 +21,8 @@ class Button:
     label: str = ""
     image: Optional[pygame.Surface] = None
     fill: Optional[Color] = None
-    border_color: Color = (30, 30, 30)
+    border_color: Optional[Color] = (30, 30, 30)
+    border_width: int = 0
 
     def draw(self, surface: pygame.Surface, font: Optional[pygame.font.Font] = None) -> None:
         if self.fill is not None:
@@ -25,7 +30,14 @@ class Button:
         if self.image is not None:
             image_rect = self.image.get_rect(center=self.rect.center)
             surface.blit(self.image, image_rect)
-        pygame.draw.rect(surface, self.border_color, self.rect, width=2, border_radius=12)
+        if self.border_color is not None and self.border_width > 0:
+            pygame.draw.rect(
+                surface,
+                self.border_color,
+                self.rect,
+                width=self.border_width,
+                border_radius=12,
+            )
         if self.label and font is not None:
             text = font.render(self.label, True, (20, 20, 20))
             text_rect = text.get_rect(center=(self.rect.centerx, self.rect.bottom - 18))
@@ -54,18 +66,54 @@ def load_image(path: str, size: Optional[Tuple[int, int]] = None) -> Optional[py
     return image
 
 
-def draw_placeholder_icon(surface: pygame.Surface, rect: pygame.Rect, label: str) -> None:
+def draw_placeholder_icon(
+    surface: pygame.Surface,
+    rect: pygame.Rect,
+    label: str,
+    *,
+    border_width: int = 0,
+    border_color: Color = (40, 40, 40),
+) -> None:
     pygame.draw.rect(surface, (220, 220, 220), rect, border_radius=16)
-    pygame.draw.rect(surface, (40, 40, 40), rect, width=3, border_radius=16)
+    if border_width > 0:
+        pygame.draw.rect(surface, border_color, rect, width=border_width, border_radius=16)
     font = pygame.font.SysFont("sans", 22)
     text = font.render(label, True, (30, 30, 30))
     text_rect = text.get_rect(center=rect.center)
     surface.blit(text, text_rect)
 
 
-def draw_home_button(surface: pygame.Surface, rect: pygame.Rect) -> None:
+def draw_home_button(
+    surface: pygame.Surface,
+    rect: pygame.Rect,
+    *,
+    border_width: int = 0,
+    border_color: Color = (30, 30, 30),
+) -> None:
     pygame.draw.rect(surface, (240, 240, 240), rect, border_radius=10)
-    pygame.draw.rect(surface, (30, 30, 30), rect, width=2, border_radius=10)
+    if border_width > 0:
+        pygame.draw.rect(surface, border_color, rect, width=border_width, border_radius=10)
+
+    padding = 4
+    max_w = max(1, rect.width - padding)
+    max_h = max(1, rect.height - padding)
+    icon_size = (max_w, max_h)
+    global _HOME_ICON_ORIG, _HOME_ICON, _HOME_ICON_SIZE
+    if _HOME_ICON_ORIG is None:
+        icon_path = Path(__file__).resolve().parents[3] / "assets" / "icons" / "home" / "home_256.png"
+        _HOME_ICON_ORIG = load_image(str(icon_path))
+    if _HOME_ICON_ORIG is not None and (_HOME_ICON is None or _HOME_ICON_SIZE != icon_size):
+        orig_w, orig_h = _HOME_ICON_ORIG.get_size()
+        scale = min(max_w / orig_w, max_h / orig_h)
+        target = (max(1, int(orig_w * scale)), max(1, int(orig_h * scale)))
+        _HOME_ICON = pygame.transform.smoothscale(_HOME_ICON_ORIG, target)
+        _HOME_ICON_SIZE = icon_size
+
+    if _HOME_ICON is not None:
+        image_rect = _HOME_ICON.get_rect(center=rect.center)
+        surface.blit(_HOME_ICON, image_rect)
+        return
+
     roof = [
         (rect.centerx, rect.top + 8),
         (rect.left + 8, rect.centery),
