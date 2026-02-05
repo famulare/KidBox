@@ -1,0 +1,17 @@
+# Virtual env / cache
+.venv/
+.pytest_cache/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local data
+/data/
+
+# UV lockfile (local)
+uv.lock
+
+# OS
+.DS_Store

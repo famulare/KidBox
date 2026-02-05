@@ -6,7 +6,15 @@ cd "$ROOT_DIR"
 
 export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}"
 
-uv venv .venv
+if [ -d ".venv" ]; then
+  if [ "${UV_VENV_CLEAR:-0}" = "1" ]; then
+    uv venv --clear .venv
+  else
+    echo "Using existing virtual environment at .venv"
+  fi
+else
+  uv venv .venv
+fi
 uv pip install -e ".[dev]"
 
 APP="${1:-launcher}"
