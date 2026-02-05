@@ -1,0 +1,33 @@
+data_root: ./data/kidbox
+
+launcher:
+  apps:
+    - name: Paint
+      icon_path: assets/icons/paint/paint_512.png
+      command: "python -m kidbox.paint"
+    - name: Photos
+      icon_path: assets/icons/photos/photos_512.png
+      command: "python -m kidbox.photos"
+    - name: Typing
+      icon_path: assets/icons/typing/typing_512.png
+      command: "python -m kidbox.typing"
+
+paint:
+  autosave_seconds: 10
+  palette:
+    - [0, 0, 0]
+    - [255, 255, 255]
+    - [220, 20, 60]
+    - [255, 127, 0]
+    - [255, 215, 0]
+    - [34, 139, 34]
+    - [0, 128, 128]
+    - [30, 144, 255]
+    - [65, 105, 225]
+    - [138, 43, 226]
+    - [255, 105, 180]
+    - [210, 105, 30]
+    - [105, 105, 105]
+    - [0, 191, 255]
+    - [154, 205, 50]
+    - [255, 99, 71]

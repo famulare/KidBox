@@ -1,4 +1,4 @@
-# Toddler Portal — v1 Detailed Spec (Python)
+# KidBox — v1 Detailed Spec (Python)
 
 ## 0. Global constraints (hard invariants)
 
@@ -15,7 +15,7 @@
 
 ---
 
-## 1. Launcher (Toddler Portal)
+## 1. Launcher (KidBox)
 
 ### 1.1 Purpose
 
