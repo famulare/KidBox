@@ -4,6 +4,7 @@ import pygame
 
 from kidbox.paint.app import _fountain_width_for_direction
 from kidbox.paint.app import _is_primary_pointer_event
+from kidbox.paint.app import _load_canvas_image
 from kidbox.paint.app import _list_archives
 
 
@@ -53,3 +54,14 @@ def test_fountain_width_respects_ratio_bounds():
         max_ratio=max_ratio,
     )
     assert int(round(size * min_ratio)) <= width <= int(round(size * max_ratio))
+
+
+def test_load_canvas_image_returns_none_on_image_error(monkeypatch, tmp_path):
+    path = tmp_path / "broken.png"
+    path.write_bytes(b"not-an-image")
+
+    def _raise(*_args, **_kwargs):
+        raise pygame.error("bad image")
+
+    monkeypatch.setattr(pygame.image, "load", _raise)
+    assert _load_canvas_image(path, (64, 64)) is None

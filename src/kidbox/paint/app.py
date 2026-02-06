@@ -23,7 +23,7 @@ FINGERMOTION = getattr(pygame, "FINGERMOTION", None)
 FINGERUP = getattr(pygame, "FINGERUP", None)
 FINGER_EVENTS = {event for event in (FINGERDOWN, FINGERMOTION, FINGERUP) if event is not None}
 
-_ICON_CACHE: Dict[Tuple[str, Tuple[int, int]], pygame.Surface] = {}
+_ICON_CACHE: Dict[Tuple[str, Tuple[int, int], bool], pygame.Surface] = {}
 
 
 def _is_primary_pointer_event(event: pygame.event.Event, *, is_down: bool) -> bool:
@@ -122,11 +122,6 @@ def _draw_stamp(
 
 
 def _draw_segment(surface: pygame.Surface, stroke: Stroke, start: Point, end: Point) -> None:
-    if stroke.tool == "fountain":
-        width = float(_fountain_width_for_direction(stroke.size, start, end))
-        _draw_fountain_segment(surface, stroke.color, start, end, width, width)
-        return
-
     distance = max(1, pygame.math.Vector2(end).distance_to(start))
     steps = max(1, int(distance / 2))
     for idx in range(steps + 1):
@@ -204,7 +199,15 @@ def _bucket_fill(surface: pygame.Surface, pos: Point, color: Color) -> None:
 def _load_thumbnail(path: Path, size: Tuple[int, int]) -> Optional[pygame.Surface]:
     try:
         image = pygame.image.load(str(path)).convert_alpha()
-    except pygame.error:
+    except (pygame.error, OSError):
+        return None
+    return pygame.transform.smoothscale(image, size)
+
+
+def _load_canvas_image(path: Path, size: Tuple[int, int]) -> Optional[pygame.Surface]:
+    try:
+        image = pygame.image.load(str(path)).convert_alpha()
+    except (pygame.error, OSError):
         return None
     return pygame.transform.smoothscale(image, size)
 
@@ -583,8 +586,9 @@ class PaintApp:
             for image, rect, path in self.recall_thumbnails:
                 moved_rect = rect.move(-self.recall_scroll, 0)
                 if moved_rect.collidepoint(pos):
-                    loaded = pygame.image.load(str(path)).convert_alpha()
-                    loaded = pygame.transform.smoothscale(loaded, self.canvas_rect.size)
+                    loaded = _load_canvas_image(path, self.canvas_rect.size)
+                    if loaded is None:
+                        continue
                     self.canvas_surface = loaded.copy()
                     self.undo_stack = []
                     self.recall_open = False

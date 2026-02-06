@@ -121,7 +121,7 @@ class TypingApp:
             kind="delete",
             row=self.cursor_row - 1,
             col=len(prev_line),
-            text="\\n",
+            text="\n",
             cursor_row=self.cursor_row,
             cursor_col=self.cursor_col,
         )

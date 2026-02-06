@@ -1,6 +1,3 @@
-import os
-from pathlib import Path
-
 from kidbox.config import load_config
 
 

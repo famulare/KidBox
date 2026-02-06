@@ -1,7 +1,7 @@
 # KidBox
 
-**KidBox** is a minimalist, offline-first Linux “kid mode” designed for very young children.
-It boots into a fullscreen launcher with exactly three large buttons:
+**KidBox** is a minimalist, offline-first Linux "kid mode" designed for very young children.
+By default it boots into a fullscreen launcher with three large buttons:
 
 - **Paint**
 - **Photos**
@@ -17,7 +17,7 @@ It is a small, comprehensible appliance built on top of Ubuntu.
 ## Design Goals
 
 - **Appliance-like UX**
-  - Power on → three buttons → activity
+  - Power on -> launcher -> activity
   - No system UI exposed
 - **Touch-first**
   - Large hit targets
@@ -25,7 +25,7 @@ It is a small, comprehensible appliance built on top of Ubuntu.
 - **Safe by construction**
   - Autosave everywhere
   - Undo everywhere
-  - “New” never destroys work
+  - "New" never destroys work
 - **Offline by default**
   - No network dependency during normal use
 - **Parent-controlled escape**
@@ -74,7 +74,8 @@ The launcher supervises apps. Apps exit cleanly back to the launcher. If an app 
 
 - Fullscreen home screen with three icons
 - Spawns apps as child processes
-- Ignores system keys (brightness, volume, etc.)
+- No clickable "exit" control on-screen
+- Ignores function keys (`F1`-`F12`)
 - **Parent escape chord:** `Ctrl + Alt + Home`
   - Exits the launcher and reveals GNOME
 
@@ -83,12 +84,12 @@ The launcher supervises apps. Apps exit cleanly back to the launcher. If an app 
 - Free drawing canvas
 - Fixed brush set:
   - Round brushes (small / medium / large)
-  - Shape brushes
-  - Fountain pen
-  - Textured brush
+  - Fountain pen (direction-sensitive wide/narrow nib)
+  - Eraser
+  - Bucket fill
 - 16-color palette
 - Stroke-based undo (default depth: 10)
-- Autosave + archive on “New”
+- Autosave + archive on "New"
 - Custom UX for recalling saved artwork via thumbnails
 
 ### Photos App
@@ -96,7 +97,8 @@ The launcher supervises apps. Apps exit cleanly back to the launcher. If an app 
 - Photo library viewer
 - Main image area + always-visible thumbnail strip
 - Swipe left/right to navigate
-- USB-only import (no network UI)
+- Photos are loaded from `data_root/photos/library`
+- Thumbnail cache is stored in `data_root/photos/thumbs`
 
 ### Typing App
 
@@ -104,6 +106,7 @@ The launcher supervises apps. Apps exit cleanly back to the launcher. If an app 
 - No prompts, no curriculum
 - Intended for free keyboard exploration
 - Undo and “New” supported
+- Undo and "New" supported
 - Session logs archived silently
 
 ---
@@ -220,4 +223,3 @@ Contributions are welcome if they respect the core design principles.
 ## License
 
 MIT
-
