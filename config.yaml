@@ -28,3 +28,8 @@ paint:
     - [105, 105, 105]
     - [0, 191, 255]
     - [154, 205, 50]
+
+photos:
+  thumb_batch: 1
+  thumb_scroll_idle_ms: 1000
+  thumb_time_budget_ms: 2

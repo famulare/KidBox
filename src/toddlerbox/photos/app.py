@@ -175,6 +175,8 @@ class PhotosApp:
         self.initial_thumb_count = int(self.config.get("photos", {}).get("initial_thumbs", 10))
         self.thumb_load_batch = int(self.config.get("photos", {}).get("thumb_batch", 2))
         self.thumb_idle_ms = int(self.config.get("photos", {}).get("thumb_idle_ms", 400))
+        self.thumb_scroll_idle_ms = int(self.config.get("photos", {}).get("thumb_scroll_idle_ms", 700))
+        self.thumb_time_budget_ms = int(self.config.get("photos", {}).get("thumb_time_budget_ms", 3))
         self._init_thumb_queue()
         self._load_initial_thumbnails()
         if cache_dirty:
@@ -383,6 +385,7 @@ class PhotosApp:
         self._render()
         self._cleanup_caches()
         last_input_ms = pygame.time.get_ticks()
+        last_scroll_ms = last_input_ms
         while running:
             for event in pygame.event.get():
                 if event.type in {
@@ -420,6 +423,7 @@ class PhotosApp:
                 elif event.type == pygame.MOUSEMOTION and self.strip_drag_last_y is not None:
                     dy = event.pos[1] - self.strip_drag_last_y
                     self._scroll_thumbnails(-dy)
+                    last_scroll_ms = pygame.time.get_ticks()
                     self.strip_drag_distance += abs(dy)
                     self.strip_drag_last_y = event.pos[1]
                 elif is_primary_pointer_event(event, is_down=False):
@@ -448,15 +452,24 @@ class PhotosApp:
                 elif event.type == pygame.MOUSEWHEEL:
                     if self.strip_rect.collidepoint(pygame.mouse.get_pos()):
                         self._scroll_thumbnails(-event.y * 40)
+                        last_scroll_ms = pygame.time.get_ticks()
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in {4, 5}:
                     if self.strip_rect.collidepoint(event.pos):
                         self._scroll_thumbnails(-40 if event.button == 4 else 40)
+                        last_scroll_ms = pygame.time.get_ticks()
 
             self._render()
-            if pygame.time.get_ticks() - last_input_ms >= self.thumb_idle_ms:
+            now_ms = pygame.time.get_ticks()
+            if (
+                now_ms - last_input_ms >= self.thumb_idle_ms
+                and now_ms - last_scroll_ms >= self.thumb_scroll_idle_ms
+            ):
                 visible_indices = self._visible_indices()
+                budget_end = now_ms + self.thumb_time_budget_ms
                 for _ in range(self.thumb_load_batch):
                     self._load_next_thumbnail(visible_indices)
+                    if pygame.time.get_ticks() >= budget_end:
+                        break
             self.clock.tick(60)
 
         if quit_on_exit:
