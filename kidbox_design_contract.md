@@ -1,444 +1,163 @@
-# KidBox — v1 Detailed Spec (Python)
+# KidBox — v1 As-Built Contract (Current Implementation)
 
-## 0. Global constraints (hard invariants)
+This document is the source of truth for the code currently shipped in `main`.
+It reflects implementation as it exists today, not aspirational scope.
 
-* Language: **Python 3**
-* UI framework: **pygame-ce** (or SDL2 bindings)
-* Windowing:
+## 0. Global invariants
 
-  * Borderless
-  * Fullscreen
-  * Single window per process
-* No desktop widgets, menus, dialogs, notifications
-* All state persists via autosave
-* Sudden power loss is expected and safe
+- Language: Python 3
+- UI framework: pygame / SDL
+- Fullscreen, borderless kiosk-style UI
+- Child-facing screens never show dialogs or crash traces
+- Parent escape chord from launcher: `Ctrl + Alt + Home`
+- Data root is configurable via `data_root` (defaults: dev `./data`, runtime fallback `/data`)
 
----
+## 1. Launcher
 
-## 1. Launcher (KidBox)
+### 1.1 UX
 
-### 1.1 Purpose
+- Fullscreen home view with three large app icons:
+  - Paint
+  - Photos
+  - Typing
+- Icon hit targets are computed from screen size (minimum 120px)
+- Function keys `F1`-`F12` are ignored
+- `Ctrl + Alt + Home` exits launcher to GNOME
 
-The launcher is the **only persistent UI surface**. It supervises apps and is the only thing the child can return to.
+### 1.2 App handoff model
 
----
+- Built-in apps (`kidbox.paint`, `kidbox.photos`, `kidbox.typing`) run embedded in-process.
+- Launcher keeps a single pygame window and switches scenes to reduce transition flicker.
+- Non-built-in commands in config are launched via subprocess fallback.
+- Subprocess fallback suppresses child stdout/stderr.
 
-### 1.2 Visual layout
+### 1.3 Return behavior
 
-* Fullscreen background (solid color)
-* **Three large icons**, centered horizontally:
+- App exits return to launcher home view.
+- Pointer down/up events are cleared on return and pointer input is briefly debounced to avoid accidental relaunch.
 
-  1. Paint
-  2. Photos
-  3. Typing
-* Icon hit targets ≥ 120×120 px
-* No clock, no status indicators, no text labels required
+## 2. Paint App
 
----
+### 2.1 Layout
 
-### 1.3 Input handling
+- Left tools panel + right canvas area
+- Small Home button at top-right
 
-#### Ignore completely:
+### 2.2 Tools and controls
 
-* Brightness keys
-* Volume keys
-* Airplane mode key
-* Media keys
-* Function keys (except escape chord)
-* System shortcuts
+- Tools:
+  - Round brush
+  - Fountain pen (direction-sensitive width)
+  - Eraser
+  - Bucket fill
+- Sizes: 3 presets (scaled by display)
+- Palette: configurable; current config provides 13 colors
+- Undo stack depth: 10
+- Actions:
+  - `New`: archive current canvas, clear canvas, clear undo
+  - `Undo`
+  - `Recall`
 
-#### Parent escape chord (ONLY special key combo):
+### 2.3 Persistence
 
-```
-Ctrl + Alt + Home
-```
+- Stores in `data_root/paint/`
+- `latest.png` autosaved periodically (default 10s)
+- Archived snapshots named `YYYY-MM-DD_HHMMSS(.+counter).png`
+- Atomic PNG writes are used
+- Existing `latest.png` is rolled over to archive on app start
 
-Behavior:
+### 2.4 Recall UX
 
-* Launcher immediately exits
-* Control returns to GNOME session (already installed)
-* No confirmation UI
-* No visual indicator
+- Recall opens as a modal overlay in the left panel area
+- Vertical scroll list of square thumbnails
+- First thumbnail is current live canvas
+- Remaining thumbnails are archived paintings (newest first)
+- Tap-release selects; drag scrolls
+- Tap outside closes recall
+- Selecting archive loads it into canvas and promotes to `latest.png`
 
-Implementation:
+## 3. Photos App
 
-* Capture keydown events
-* Track modifier state
-* On exact chord → `sys.exit(0)`
+### 3.1 Layout
 
----
+- Vertical thumbnail strip on the left
+- Main image area on the right
+- Home button at top-right
+- Optional next/prev arrows controlled by config (`photos.show_arrows`)
 
-### 1.4 App launching model
+### 3.2 Behavior
 
-* Launcher spawns apps via `subprocess.Popen`
-* Launcher blocks on child process exit
-* When child exits → launcher redraws home screen
+- Library path: `data_root/photos/library`
+- Thumbnail cache path: `data_root/photos/thumbs`
+- Supported extensions: `.png .jpg .jpeg .bmp .gif`
+- Thumbnails are generated/cached and reused by mtime
+- Strip supports drag/wheel scrolling
+- Tap-release on thumbnail selects image
+- Horizontal drag in main image area changes image index
 
-No IPC required in v1.
-
----
-
-### 1.5 Files and paths
-
-```text
-/opt/kidbox/launcher/launcher.py
-/opt/kidbox/config.yaml
-/data/
-```
-
----
-
-## 2. Common app conventions (ALL apps)
-
-### 2.1 Shared UI rules
-
-* Fullscreen
-* No window chrome
-* No menus
-* No toolbars beyond explicitly listed controls
-* One **Home / Minimize** button per app
-* Esc key triggers Home / Minimize
-
-### 2.2 Minimize behavior
-
-* Minimize == process exit
-* Launcher reappears automatically
-
-### 2.3 Undo
-
-* Default undo depth = **10**
-* Undo is always visible
-* Undo never asks for confirmation
-
----
-
-## 3. Paint App
-
-### 3.1 Purpose
-
-Free-form drawing with variety but **no configuration UI**.
-
----
-
-### 3.2 Canvas
-
-* Occupies ~70–80% of screen
-* White or off-white background
-* Touch/mouse draws immediately
-
----
-
-### 3.3 Brushes (fixed set, visible buttons)
-
-No size chooser, no sliders.
-
-#### Round brushes
-
-* Small
-* Medium
-* Large
-
-#### Shape brushes
-
-* Square
-* Triangle
-* Star (or hexagon)
-
-#### Specialty brushes
-
-* Fountain pen (pressure simulated via speed)
-* Textured brush (noise-based alpha)
-
-Each brush has:
-
-* Fixed size
-* Fixed shape
-* One button per brush
-
-Total brushes: ~8–10
-
----
-
-### 3.4 Color palette
-
-* Exactly **13 colors**
-* Visible at all times
-* Large swatches
-* No picker, no RGB sliders
-
----
-
-### 3.5 Undo
-
-* Stroke-based undo
-* One undo removes one stroke
-* Undo stack capped at 10
-
----
-
-### 3.6 New behavior
-
-* `New` button:
-
-  * Autosaves current canvas to archive
-  * Clears canvas
-  * Resets undo stack
-* No confirmation dialogs
-
----
-
-### 3.7 Autosave & persistence
-
-Files:
-
-```text
-/data/paint/latest.png
-/data/paint/YYYY-MM-DD_HHMMSS.png
-```
-
-Rules:
-
-* `latest.png` updated every 10 seconds
-* Also saved on New
-* Atomic writes only
-
----
-
-### 3.8 **Saved art recall UX (important, custom)**
-
-This is non-trivial and should be explicit.
-
-#### Base UI state
-
-* A **thumbnail button** is visible
-* It displays:
-
-  * The most recent archived painting (not `latest.png`)
-  * If none exists, button is hidden or disabled
-
-#### On thumbnail tap
-
-* Paint UI is **entirely replaced**
-* A fullscreen overlay appears:
-
-  * Scrollable horizontal strip of thumbnails
-  * No other controls visible
-* Tap a thumbnail:
-
-  * Loads that painting into canvas
-  * Closes overlay
-  * Returns to base paint UI
-* Tap outside strip or Home:
-
-  * Cancel and return to base UI
-
-No delete, no rename.
-
----
-
-## 4. Photos App
+## 4. Typing App
 
 ### 4.1 Layout
 
-* Main image area: left ~70% of screen
-* Thumbnail strip: **always visible on the right**
-* Strip scrolls vertically
+- Left controls panel, right text area
+- Home button at top-right
 
----
+### 4.2 Text model
 
-### 4.2 Behavior
+- Rich per-character glyph model:
+  - `char`
+  - `size`
+  - `style` (`plain|bold|italic`)
+- Styling changes apply to newly typed characters from cursor forward
+- Cursor and glyph rendering support mixed sizes/styles in one line
+- Mixed-size line rendering is bottom-aligned per row
 
-* Load images from:
+### 4.3 Controls
 
-```text
-/data/photos/library/
-```
+- `New`: archive session and clear document
+- `Undo`: depth 20
+- Size buttons: default 25, plus 50 and 100
+- Style buttons: Plain, Bold, Italic
+- Recall button uses static thumbnail text prompt
 
-* Generate thumbnails in:
+### 4.4 Recall and persistence
 
-```text
-/data/photos/thumbs/
-```
+- Session file: `data_root/typing/sessions.jsonl`
+- Each record stores:
+  - `timestamp`
+  - `rich_lines` (glyph arrays)
+- Recall overlay opens in left panel and lists:
+  - `Current`
+  - Recent archived sessions (newest first)
+- Each item shows text preview (first 150 normalized chars)
+- Tap outside closes recall; tap-release loads selected session
 
-* Tap thumbnail → display in main area
-* Swipe left/right on main image → next/previous photo
+## 5. Data layout
 
----
-
-### 4.3 Import policy
-
-* No UI for import in v1
-
-Parent workflow:
-
-* Mount USB and/or locate local files using ubuntu UX.
-* Copy files into `library/`
-* App picks them up on next launch
-
----
-
-### 4.4 Controls
-
-* Home / Minimize
-* Optional next/prev arrows (only if swipe unreliable)
-
-No delete, no share, no edit.
-
----
-
-## 5. Typing App
-
-### 5.1 Purpose
-
-Pure keyboard play. No curriculum.
-
----
-
-### 5.2 UI
-
-* Fullscreen blank canvas
-* Single text field
-* Simple sans-serif font
-* Font size ~12pt (low-res screen assumption)
-* Cursor always visible
-
----
-
-### 5.3 Input handling
-
-Accepted:
-
-* Printable characters
-* Space
-* Backspace
-* Shift for capitalization
-* Enter for new line
-* Esc for home / minimize
-
-Ignored:
-
-* All other modifiers
-* Ctrl shortcuts
-* Alt shortcuts
-* Function keys
-
----
-
-### 5.4 Undo
-
-* Undo removes:
-
-  * Last character
-* Undo depth = 20
-
----
-
-### 5.5 New
-
-* Clears text
-* Archives session to:
+All app data lives directly under `data_root`:
 
 ```text
-/data/typing/sessions.jsonl
+data_root/
+├── paint/
+│   ├── latest.png
+│   └── YYYY-MM-DD_HHMMSS*.png
+├── photos/
+│   ├── library/
+│   └── thumbs/
+└── typing/
+    └── sessions.jsonl
 ```
 
-No prompts, no warnings.
+## 6. Configuration (current keys)
 
----
+- `data_root`
+- `launcher.apps[]` (`name`, `icon_path`, `command`)
+- `paint.autosave_seconds`
+- `paint.palette`
+- `photos.show_arrows` (optional)
 
-## 6. Kiosk + GNOME integration
+## 7. Error handling
 
-### 6.1 Session model
-
-* GNOME installed normally
-* Kid launcher runs fullscreen **on top**
-* Escape chord exits launcher → GNOME desktop appears
-
-No display manager hacks required beyond autostart.
-
----
-
-### 6.2 Autostart strategy (recommended)
-
-* Autologin enabled
-* GNOME session
-* Launcher added as startup application
-* Launcher set fullscreen and grabs input
-
-This keeps:
-
-* Hardware keys manageable
-* Parent recovery trivial
-* Future growth easy
-
----
-
-## 7. Error handling & resilience
-
-* If any app crashes:
-
-  * Launcher regains control
-  * No error shown to child
-* If paint/photos data missing:
-
-  * App recreates directories
-* No fatal errors allowed to reach screen
-
----
-
-## 8. Explicit deferrals (NOT in v1)
-
-* Typing history recall UI
-* Multi-user profiles
-* Screen time controls
-* Audio feedback
-* Accessibility modes
-
----
-
-## 9. Codex-friendly task breakdown
-
-You can hand this directly to codegen:
-
-### Task 1 — Launcher
-
-* Fullscreen pygame window
-* 3 buttons
-* Subprocess launch
-* Ctrl+Alt+Home escape
-* Ignore system keys
-
-### Task 2 — Paint App
-
-* Stroke engine
-* Fixed brush set
-* 13-color palette
-* Undo stack (10)
-* Autosave
-* Thumbnail recall overlay
-
-### Task 3 — Photos App
-
-* Directory scan
-* Thumbnail cache
-* Fixed right-side strip
-* Swipe navigation
-
-### Task 4 — Typing App
-
-* Raw text input
-* Undo
-* New
-* Session logging
-
----
-
-## 10. Sanity check (does this match intent?)
-
-* ✔ Minimal UI
-* ✔ No accidental exits
-* ✔ Undo everywhere
-* ✔ “New” is safe
-* ✔ No file metaphors for child
-* ✔ Parent can always escape cleanly
-* ✔ Python-readable
+- App `main()` wrappers swallow exceptions and call `pygame.quit()` in standalone mode
+- Embedded launcher path catches app exceptions and returns to launcher
+- Child-facing UIs do not show error dialogs

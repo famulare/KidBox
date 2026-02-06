@@ -31,7 +31,8 @@ It is a small, comprehensible appliance built on top of Ubuntu.
 - **Parent-controlled escape**
   - Hidden keyboard chord drops back to GNOME
 - **Grow-with-the-child**
-  - Apps are normal Linux processes
+  - Built-in apps run in-process for smooth transitions
+  - Non-built-in apps can still be launched via subprocess fallback
   - Full desktop can be re-enabled later without reinstalling
 
 ---
@@ -47,9 +48,9 @@ It is a small, comprehensible appliance built on top of Ubuntu.
 │          [ Typing ]        │
 │                            │
 └─────────────┬──────────────┘
-              │ launches
+              │ switches scenes in-process
 ┌─────────────▼──────────────┐
-│     Individual Apps        │
+│      Embedded App Views    │
 │  - Paint                   │
 │  - Photos                  │
 │  - Typing                  │
@@ -73,7 +74,8 @@ The launcher supervises apps. Apps exit cleanly back to the launcher. If an app 
 ### Launcher
 
 - Fullscreen home screen with three icons
-- Spawns apps as child processes
+- Runs built-in apps in-process (`paint`, `photos`, `typing`)
+- Subprocess fallback for non-built-in commands in config
 - No clickable "exit" control on-screen
 - Ignores function keys (`F1`-`F12`)
 - **Parent escape chord:** `Ctrl + Alt + Home`
@@ -82,32 +84,41 @@ The launcher supervises apps. Apps exit cleanly back to the launcher. If an app 
 ### Paint App
 
 - Free drawing canvas
-- Fixed brush set:
-  - Round brushes (small / medium / large)
-  - Fountain pen (direction-sensitive wide/narrow nib)
+- Tools:
+  - Round brush
+  - Fountain pen (direction-sensitive width)
   - Eraser
   - Bucket fill
-- 16-color palette
+- 3 line-size options (small/medium/large)
+- 13-color palette (configurable)
 - Stroke-based undo (default depth: 10)
 - Autosave + archive on "New"
-- Custom UX for recalling saved artwork via thumbnails
+- Recall overlay in the left tools panel:
+  - First item is the current live canvas
+  - Older archives below in a vertical scroll list
+  - Tap outside recall closes it
 
 ### Photos App
 
 - Photo library viewer
-- Main image area + always-visible thumbnail strip
+- Main image area + always-visible thumbnail strip on the left
 - Swipe left/right to navigate
+- Home button at top-right
 - Photos are loaded from `data_root/photos/library`
 - Thumbnail cache is stored in `data_root/photos/thumbs`
 
 ### Typing App
 
-- Simple fullscreen text field
-- No prompts, no curriculum
-- Intended for free keyboard exploration
-- Undo and “New” supported
-- Undo and "New" supported
-- Session logs archived silently
+- Freeform text area with rich per-character styling
+- Left control panel includes:
+  - `New`, `Undo`
+  - Font size buttons (`25`, `50`, `100`) with sample "A"
+  - Font style buttons (`Plain`, `Bold`, `Italic`)
+  - Recall thumbnail tile
+- Styling changes apply to newly typed text from the cursor forward
+- Undo and New supported (`Undo` depth 20)
+- Recall overlay in the left panel shows saved session previews
+- Session logs archived silently as rich glyph JSON in `sessions.jsonl`
 
 ---
 
