@@ -635,8 +635,46 @@ class PaintApp:
                 continue
             self.screen.blit(image, moved_rect)
 
+    def _render(self) -> None:
+        self.screen.fill((252, 248, 240))
+        pygame.draw.rect(self.screen, self.menu_bg, self.controls_rect)
+        self.screen.blit(self.canvas_surface, self.canvas_rect.topleft)
+        pygame.draw.rect(self.screen, (200, 200, 200), self.canvas_rect, width=2)
+
+        for tool, button in self.tool_buttons.items():
+            button.draw(self.screen)
+            if tool == self.current_tool:
+                pygame.draw.rect(self.screen, (200, 60, 60), button.rect, width=3, border_radius=12)
+
+        for size, button in self.size_buttons.items():
+            button.draw(self.screen)
+            if size == self.current_size:
+                pygame.draw.rect(self.screen, (200, 60, 60), button.rect, width=3, border_radius=12)
+
+        for idx, button in enumerate(self.palette_buttons):
+            button.draw(self.screen)
+            if self.palette[idx] == self.current_color:
+                pygame.draw.rect(self.screen, (200, 60, 60), button.rect, width=3)
+
+        for key, button in self.action_buttons.items():
+            if key == "home":
+                draw_home_button(self.screen, button.rect)
+            else:
+                if key in {"new", "undo"}:
+                    button.draw(self.screen, self.font)
+                elif key == "recall" and button.image is None:
+                    button.draw(self.screen, self.font)
+                else:
+                    button.draw(self.screen)
+
+        if self.recall_open:
+            self._draw_recall_overlay()
+
+        pygame.display.flip()
+
     def run(self) -> None:
         running = True
+        self._render()
         while running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -672,41 +710,7 @@ class PaintApp:
                 self._autosave_latest()
                 self.last_autosave = now
 
-            self.screen.fill((252, 248, 240))
-            pygame.draw.rect(self.screen, self.menu_bg, self.controls_rect)
-            self.screen.blit(self.canvas_surface, self.canvas_rect.topleft)
-            pygame.draw.rect(self.screen, (200, 200, 200), self.canvas_rect, width=2)
-
-            for tool, button in self.tool_buttons.items():
-                button.draw(self.screen)
-                if tool == self.current_tool:
-                    pygame.draw.rect(self.screen, (200, 60, 60), button.rect, width=3, border_radius=12)
-
-            for size, button in self.size_buttons.items():
-                button.draw(self.screen)
-                if size == self.current_size:
-                    pygame.draw.rect(self.screen, (200, 60, 60), button.rect, width=3, border_radius=12)
-
-            for idx, button in enumerate(self.palette_buttons):
-                button.draw(self.screen)
-                if self.palette[idx] == self.current_color:
-                    pygame.draw.rect(self.screen, (200, 60, 60), button.rect, width=3)
-
-            for key, button in self.action_buttons.items():
-                if key == "home":
-                    draw_home_button(self.screen, button.rect)
-                else:
-                    if key in {"new", "undo"}:
-                        button.draw(self.screen, self.font)
-                    elif key == "recall" and button.image is None:
-                        button.draw(self.screen, self.font)
-                    else:
-                        button.draw(self.screen)
-
-            if self.recall_open:
-                self._draw_recall_overlay()
-
-            pygame.display.flip()
+            self._render()
             self.clock.tick(60)
 
         pygame.quit()

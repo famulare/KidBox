@@ -136,8 +136,45 @@ class PhotosApp:
     def _scroll_thumbnails(self, delta: int) -> None:
         self.scroll_y = max(0, min(self._max_scroll(), self.scroll_y + delta))
 
+    def _render(self) -> None:
+        self.screen.fill((246, 246, 246))
+        pygame.draw.rect(self.screen, (230, 230, 230), self.strip_rect)
+
+        if self.current_image:
+            image_rect = self.current_image.get_rect(center=self.main_rect.center)
+            self.screen.blit(self.current_image, image_rect)
+        else:
+            text = self.font.render("No photos found", True, (50, 50, 50))
+            self.screen.blit(text, text.get_rect(center=self.main_rect.center))
+
+        y = self.thumb_gap - self.scroll_y
+        for idx, item in enumerate(self.items):
+            rect = pygame.Rect(
+                self.strip_rect.left + 12,
+                y,
+                self.thumb_size,
+                self.thumb_size,
+            )
+            if rect.bottom >= 0 and rect.top <= self.screen_rect.height:
+                if item.thumb:
+                    thumb_rect = item.thumb.get_rect(center=rect.center)
+                    self.screen.blit(item.thumb, thumb_rect)
+                pygame.draw.rect(self.screen, (120, 120, 120), rect, width=2)
+                if idx == self.current_index:
+                    pygame.draw.rect(self.screen, (200, 60, 60), rect, width=3)
+            y += self.thumb_size + self.thumb_gap
+
+        draw_home_button(self.screen, self.home_button.rect)
+
+        if self.show_arrows:
+            self.left_arrow.draw(self.screen, self.font)
+            self.right_arrow.draw(self.screen, self.font)
+
+        pygame.display.flip()
+
     def run(self) -> None:
         running = True
+        self._render()
         while running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -182,40 +219,7 @@ class PhotosApp:
                     if self.strip_rect.collidepoint(event.pos):
                         self._scroll_thumbnails(-40 if event.button == 4 else 40)
 
-            self.screen.fill((246, 246, 246))
-            pygame.draw.rect(self.screen, (230, 230, 230), self.strip_rect)
-
-            if self.current_image:
-                image_rect = self.current_image.get_rect(center=self.main_rect.center)
-                self.screen.blit(self.current_image, image_rect)
-            else:
-                text = self.font.render("No photos found", True, (50, 50, 50))
-                self.screen.blit(text, text.get_rect(center=self.main_rect.center))
-
-            y = self.thumb_gap - self.scroll_y
-            for idx, item in enumerate(self.items):
-                rect = pygame.Rect(
-                    self.strip_rect.left + 12,
-                    y,
-                    self.thumb_size,
-                    self.thumb_size,
-                )
-                if rect.bottom >= 0 and rect.top <= self.screen_rect.height:
-                    if item.thumb:
-                        thumb_rect = item.thumb.get_rect(center=rect.center)
-                        self.screen.blit(item.thumb, thumb_rect)
-                    pygame.draw.rect(self.screen, (120, 120, 120), rect, width=2)
-                    if idx == self.current_index:
-                        pygame.draw.rect(self.screen, (200, 60, 60), rect, width=3)
-                y += self.thumb_size + self.thumb_gap
-
-            draw_home_button(self.screen, self.home_button.rect)
-
-            if self.show_arrows:
-                self.left_arrow.draw(self.screen, self.font)
-                self.right_arrow.draw(self.screen, self.font)
-
-            pygame.display.flip()
+            self._render()
             self.clock.tick(60)
 
         pygame.quit()

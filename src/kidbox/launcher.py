@@ -94,6 +94,28 @@ def _launch_app(app: LauncherApp) -> None:
         return
 
 
+def _restore_launcher_window() -> tuple[pygame.Surface, pygame.Rect]:
+    existing = pygame.display.get_surface()
+    if existing is not None:
+        return existing, existing.get_rect()
+    return create_fullscreen_window()
+
+
+def _draw_launcher_frame(
+    screen: pygame.Surface,
+    background: tuple[int, int, int],
+    apps: List[LauncherApp],
+    buttons: List[Button],
+) -> None:
+    screen.fill(background)
+    for app, button in zip(apps, buttons):
+        if button.image is None:
+            draw_placeholder_icon(screen, button.rect, app.name, border_width=0)
+        else:
+            button.draw(screen)
+    pygame.display.flip()
+
+
 def main() -> None:
     config = load_config()
     apps = _load_apps(config)
@@ -104,6 +126,7 @@ def main() -> None:
     buttons = _build_buttons(apps, screen_rect)
 
     running = True
+    _draw_launcher_frame(screen, background, apps, buttons)
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -117,17 +140,12 @@ def main() -> None:
                 for app, button in zip(apps, buttons):
                     if button.hit(event.pos):
                         _launch_app(app)
-                        screen, screen_rect = create_fullscreen_window()
+                        screen, screen_rect = _restore_launcher_window()
                         buttons = _build_buttons(apps, screen_rect)
+                        _draw_launcher_frame(screen, background, apps, buttons)
                         break
 
-        screen.fill(background)
-        for app, button in zip(apps, buttons):
-            if button.image is None:
-                draw_placeholder_icon(screen, button.rect, app.name, border_width=0)
-            else:
-                button.draw(screen)
-        pygame.display.flip()
+        _draw_launcher_frame(screen, background, apps, buttons)
         clock.tick(60)
 
     pygame.quit()

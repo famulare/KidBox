@@ -204,9 +204,30 @@ class TypingApp:
         self.cursor_row = min(len(self.text_lines) - 1, self.cursor_row + lines)
         self.cursor_col = min(self.cursor_col, len(self.text_lines[self.cursor_row]))
 
+    def _render(self) -> None:
+        self.screen.fill((248, 248, 248))
+
+        draw_home_button(self.screen, self.home_button.rect)
+        self.undo_button.draw(self.screen, self.font)
+        self.new_button.draw(self.screen, self.font)
+
+        y = self.margin + 60
+        for line in self.text_lines:
+            text_surface = self.font.render(line, True, (20, 20, 20))
+            self.screen.blit(text_surface, (self.margin, y))
+            y += self.font.get_height() + 6
+
+        cursor_line = self.text_lines[self.cursor_row]
+        cursor_x = self.margin + self.font.size(cursor_line[: self.cursor_col])[0]
+        cursor_y = self.margin + 60 + self.cursor_row * (self.font.get_height() + 6)
+        pygame.draw.rect(self.screen, (30, 30, 30), (cursor_x, cursor_y, 6, self.font.get_height()))
+
+        pygame.display.flip()
+
     def run(self) -> None:
         running = True
         lines_per_page = max(1, (self.screen_rect.height - (self.margin + 80)) // (self.font.get_height() + 6))
+        self._render()
         while running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -264,24 +285,7 @@ class TypingApp:
                         self._archive_session()
                         self._clear_text()
 
-            self.screen.fill((248, 248, 248))
-
-            draw_home_button(self.screen, self.home_button.rect)
-            self.undo_button.draw(self.screen, self.font)
-            self.new_button.draw(self.screen, self.font)
-
-            y = self.margin + 60
-            for line in self.text_lines:
-                text_surface = self.font.render(line, True, (20, 20, 20))
-                self.screen.blit(text_surface, (self.margin, y))
-                y += self.font.get_height() + 6
-
-            cursor_line = self.text_lines[self.cursor_row]
-            cursor_x = self.margin + self.font.size(cursor_line[: self.cursor_col])[0]
-            cursor_y = self.margin + 60 + self.cursor_row * (self.font.get_height() + 6)
-            pygame.draw.rect(self.screen, (30, 30, 30), (cursor_x, cursor_y, 6, self.font.get_height()))
-
-            pygame.display.flip()
+            self._render()
             self.clock.tick(60)
 
         pygame.quit()
