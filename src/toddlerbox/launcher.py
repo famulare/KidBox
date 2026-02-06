@@ -12,7 +12,7 @@ import pygame
 
 from toddlerbox.config import load_config
 from toddlerbox.paint.app import run_embedded as run_paint_embedded
-from toddlerbox.photos.app import PhotosApp, PhotosPrewarmer, run_embedded as run_photos_embedded
+from toddlerbox.photos.app import PhotosApp, run_embedded as run_photos_embedded
 from toddlerbox.typing.app import run_embedded as run_typing_embedded
 from toddlerbox.ui.common import (
     Button,
@@ -177,8 +177,9 @@ def main() -> None:
     prewarm_enabled = bool(config.get("launcher", {}).get("photos_prewarm", True))
     prewarm_idle_ms = int(config.get("launcher", {}).get("photos_prewarm_idle_ms", 600))
     prewarm_batch = int(config.get("launcher", {}).get("photos_prewarm_batch", 2))
-    prewarmer = PhotosPrewarmer(screen_rect) if prewarm_enabled else None
     photos_app: Optional[PhotosApp] = None
+    if prewarm_enabled:
+        photos_app = PhotosApp(screen=screen, screen_rect=screen_rect, clock=clock)
     pointer_block_until = 0.0
     last_input = time.monotonic()
 
@@ -216,8 +217,6 @@ def main() -> None:
                         if used_subprocess:
                             screen, screen_rect = _restore_launcher_window()
                             buttons = _build_buttons(apps, screen_rect)
-                            if prewarm_enabled:
-                                prewarmer = PhotosPrewarmer(screen_rect)
                         pointer_events = [pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP]
                         finger_down = getattr(pygame, "FINGERDOWN", None)
                         finger_up = getattr(pygame, "FINGERUP", None)
@@ -233,8 +232,9 @@ def main() -> None:
 
         _draw_launcher_frame(screen, background, apps, buttons)
         now = time.monotonic()
-        if prewarmer and now - last_input >= (prewarm_idle_ms / 1000.0) and now >= pointer_block_until:
-            prewarmer.step(prewarm_batch)
+        if photos_app and now - last_input >= (prewarm_idle_ms / 1000.0) and now >= pointer_block_until:
+            for _ in range(prewarm_batch):
+                photos_app._load_next_thumbnail()
         clock.tick(60)
 
     pygame.quit()
