@@ -12,6 +12,8 @@ try:
 except Exception:
     Image = None
 
+FINGERMOTION = getattr(pygame, "FINGERMOTION", None)
+
 from toddlerbox.config import load_config
 from toddlerbox.paths import ensure_directories, get_data_root
 from toddlerbox.ui.common import (
@@ -394,6 +396,9 @@ class PhotosApp:
                     pygame.MOUSEBUTTONUP,
                     pygame.MOUSEWHEEL,
                     pygame.KEYDOWN,
+                    getattr(pygame, "FINGERDOWN", None),
+                    getattr(pygame, "FINGERUP", None),
+                    FINGERMOTION,
                 }:
                     last_input_ms = pygame.time.get_ticks()
                 if event.type == pygame.QUIT:
@@ -418,14 +423,18 @@ class PhotosApp:
                             self._change_index(-1)
                         elif self.right_arrow.hit(pos):
                             self._change_index(1)
-                elif event.type == pygame.MOUSEMOTION and self.drag_start:
-                    self.drag_delta = (event.pos[0] - self.drag_start[0], event.pos[1] - self.drag_start[1])
-                elif event.type == pygame.MOUSEMOTION and self.strip_drag_last_y is not None:
-                    dy = event.pos[1] - self.strip_drag_last_y
-                    self._scroll_thumbnails(-dy)
-                    last_scroll_ms = pygame.time.get_ticks()
-                    self.strip_drag_distance += abs(dy)
-                    self.strip_drag_last_y = event.pos[1]
+                elif event.type == pygame.MOUSEMOTION or (FINGERMOTION is not None and event.type == FINGERMOTION):
+                    pos = pointer_event_pos(event, self.screen_rect)
+                    if pos is None:
+                        continue
+                    if self.drag_start:
+                        self.drag_delta = (pos[0] - self.drag_start[0], pos[1] - self.drag_start[1])
+                    if self.strip_drag_last_y is not None:
+                        dy = pos[1] - self.strip_drag_last_y
+                        self._scroll_thumbnails(-dy)
+                        last_scroll_ms = pygame.time.get_ticks()
+                        self.strip_drag_distance += abs(dy)
+                        self.strip_drag_last_y = pos[1]
                 elif is_primary_pointer_event(event, is_down=False):
                     pos = pointer_event_pos(event, self.screen_rect)
                     if pos is None:
@@ -460,16 +469,17 @@ class PhotosApp:
 
             self._render()
             now_ms = pygame.time.get_ticks()
-            if (
-                now_ms - last_input_ms >= self.thumb_idle_ms
-                and now_ms - last_scroll_ms >= self.thumb_scroll_idle_ms
-            ):
-                visible_indices = self._visible_indices()
-                budget_end = now_ms + self.thumb_time_budget_ms
-                for _ in range(self.thumb_load_batch):
-                    self._load_next_thumbnail(visible_indices)
-                    if pygame.time.get_ticks() >= budget_end:
-                        break
+            active = (
+                now_ms - last_input_ms < self.thumb_idle_ms
+                or now_ms - last_scroll_ms < self.thumb_scroll_idle_ms
+            )
+            budget_end = now_ms + self.thumb_time_budget_ms
+            batch = 1 if active else self.thumb_load_batch
+            visible_indices = None if active else self._visible_indices()
+            for _ in range(batch):
+                self._load_next_thumbnail(visible_indices)
+                if pygame.time.get_ticks() >= budget_end:
+                    break
             self.clock.tick(60)
 
         if quit_on_exit:
