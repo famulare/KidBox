@@ -183,6 +183,7 @@ class PhotosApp:
         self._load_initial_thumbnails()
         if cache_dirty:
             _save_exif_cache(self.exif_cache_path, self.exif_cache)
+        self._cleanup_caches()
         self._load_current_image()
 
         self.drag_start: Optional[Tuple[int, int]] = None
@@ -197,6 +198,20 @@ class PhotosApp:
         self.home_button = Button(rect=pygame.Rect(self.screen_rect.width - 90, 20, 70, 50), fill=(240, 240, 240))
         self.left_arrow = Button(rect=pygame.Rect(self.main_rect.left + 20, self.screen_rect.centery - 30, 50, 60), fill=(245, 245, 245))
         self.right_arrow = Button(rect=pygame.Rect(self.main_rect.right - 70, self.screen_rect.centery - 30, 50, 60), fill=(245, 245, 245))
+
+    def relaunch(self, screen: pygame.Surface, screen_rect: pygame.Rect, clock: pygame.time.Clock) -> None:
+        self.screen = screen
+        self.screen_rect = screen_rect
+        self.clock = clock
+        self.scroll_y = 0
+        self.current_index = 0
+        self._load_current_image()
+        self.drag_start = None
+        self.drag_delta = (0, 0)
+        self.strip_drag_last_y = None
+        self.strip_pressed_index = None
+        self.strip_drag_distance = 0
+        self.pointer_down = False
 
     def _init_thumb_queue(self) -> None:
         self._pending_order = list(range(len(self.items)))
@@ -386,7 +401,6 @@ class PhotosApp:
     def run(self, *, quit_on_exit: bool = True) -> None:
         running = True
         self._render()
-        self._cleanup_caches()
         last_input_ms = pygame.time.get_ticks()
         last_scroll_ms = last_input_ms
         while running:
@@ -509,8 +523,19 @@ def main() -> None:
         pygame.quit()
 
 
-def run_embedded(screen: pygame.Surface, screen_rect: pygame.Rect, clock: pygame.time.Clock) -> None:
-    PhotosApp(screen=screen, screen_rect=screen_rect, clock=clock).run(quit_on_exit=False)
+def run_embedded(
+    screen: pygame.Surface,
+    screen_rect: pygame.Rect,
+    clock: pygame.time.Clock,
+    *,
+    app: Optional[PhotosApp] = None,
+) -> PhotosApp:
+    if app is None:
+        app = PhotosApp(screen=screen, screen_rect=screen_rect, clock=clock)
+    else:
+        app.relaunch(screen, screen_rect, clock)
+    app.run(quit_on_exit=False)
+    return app
 
 
 class PhotosPrewarmer:

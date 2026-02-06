@@ -12,7 +12,7 @@ import pygame
 
 from toddlerbox.config import load_config
 from toddlerbox.paint.app import run_embedded as run_paint_embedded
-from toddlerbox.photos.app import PhotosPrewarmer, run_embedded as run_photos_embedded
+from toddlerbox.photos.app import PhotosApp, PhotosPrewarmer, run_embedded as run_photos_embedded
 from toddlerbox.typing.app import run_embedded as run_typing_embedded
 from toddlerbox.ui.common import (
     Button,
@@ -36,7 +36,6 @@ class LauncherApp:
 
 _EMBEDDED_RUNNERS: Dict[str, Callable[[pygame.Surface, pygame.Rect, pygame.time.Clock], None]] = {
     "toddlerbox.paint": run_paint_embedded,
-    "toddlerbox.photos": run_photos_embedded,
     "toddlerbox.typing": run_typing_embedded,
 }
 
@@ -74,14 +73,13 @@ def _resolve_command(command: List[str]) -> List[str]:
     return command
 
 
-def _embedded_runner_for_command(command: List[str]) -> Optional[Callable[[pygame.Surface, pygame.Rect, pygame.time.Clock], None]]:
+def _module_name_for_command(command: List[str]) -> Optional[str]:
     if "-m" not in command:
         return None
     idx = command.index("-m")
     if idx + 1 >= len(command):
         return None
-    module_name = command[idx + 1]
-    return _EMBEDDED_RUNNERS.get(module_name)
+    return command[idx + 1]
 
 
 def _build_buttons(apps: List[LauncherApp], screen_rect: pygame.Rect) -> List[Button]:
@@ -106,18 +104,33 @@ def _build_buttons(apps: List[LauncherApp], screen_rect: pygame.Rect) -> List[Bu
     return buttons
 
 
-def _launch_app(app: LauncherApp, screen: pygame.Surface, screen_rect: pygame.Rect, clock: pygame.time.Clock) -> bool:
-    runner = _embedded_runner_for_command(app.command)
+def _launch_app(
+    app: LauncherApp,
+    screen: pygame.Surface,
+    screen_rect: pygame.Rect,
+    clock: pygame.time.Clock,
+    *,
+    photos_app: Optional[PhotosApp] = None,
+) -> tuple[bool, Optional[PhotosApp]]:
+    module_name = _module_name_for_command(app.command)
+    if module_name == "toddlerbox.photos":
+        try:
+            photos_app = run_photos_embedded(screen, screen_rect, clock, app=photos_app)
+        except Exception:
+            pass
+        return False, photos_app
+
+    runner = _EMBEDDED_RUNNERS.get(module_name) if module_name else None
     if runner is not None:
         try:
             runner(screen, screen_rect, clock)
         except Exception:
-            return False
-        return False
+            return False, photos_app
+        return False, photos_app
 
     command = _resolve_command(app.command)
     if not command:
-        return False
+        return False, photos_app
     try:
         child = subprocess.Popen(
             command,
@@ -127,8 +140,8 @@ def _launch_app(app: LauncherApp, screen: pygame.Surface, screen_rect: pygame.Re
         )
         child.wait()
     except Exception:
-        return False
-    return True
+        return False, photos_app
+    return True, photos_app
 
 
 def _restore_launcher_window() -> tuple[pygame.Surface, pygame.Rect]:
@@ -165,6 +178,7 @@ def main() -> None:
     prewarm_idle_ms = int(config.get("launcher", {}).get("photos_prewarm_idle_ms", 600))
     prewarm_batch = int(config.get("launcher", {}).get("photos_prewarm_batch", 2))
     prewarmer = PhotosPrewarmer(screen_rect) if prewarm_enabled else None
+    photos_app: Optional[PhotosApp] = None
     pointer_block_until = 0.0
     last_input = time.monotonic()
 
@@ -196,7 +210,9 @@ def main() -> None:
                     continue
                 for app, button in zip(apps, buttons):
                     if button.hit(pos):
-                        used_subprocess = _launch_app(app, screen, screen_rect, clock)
+                        used_subprocess, photos_app = _launch_app(
+                            app, screen, screen_rect, clock, photos_app=photos_app,
+                        )
                         if used_subprocess:
                             screen, screen_rect = _restore_launcher_window()
                             buttons = _build_buttons(apps, screen_rect)
