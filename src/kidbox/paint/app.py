@@ -620,6 +620,9 @@ class PaintApp:
 
     def _handle_recall_event(self, event: pygame.event.Event) -> None:
         if is_primary_pointer_event(event, is_down=True):
+            if self.pointer_down:
+                # Ignore duplicate emulated pointer-down events from touch stacks.
+                return
             pos = self._event_pos(event)
             if pos is None:
                 return
@@ -635,6 +638,9 @@ class PaintApp:
             self.recall_pressed_index = self._recall_index_at_pos(pos)
             self.recall_drag_distance = 0
         if is_primary_pointer_event(event, is_down=False):
+            if not self.pointer_down:
+                # Ignore duplicate emulated pointer-up events.
+                return
             self.pointer_down = False
             pos = self._event_pos(event)
             if (

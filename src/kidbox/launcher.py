@@ -4,6 +4,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
@@ -126,6 +127,7 @@ def main() -> None:
     background = (248, 244, 236)
 
     buttons = _build_buttons(apps, screen_rect)
+    pointer_block_until = 0.0
 
     running = True
     _draw_launcher_frame(screen, background, apps, buttons)
@@ -139,6 +141,8 @@ def main() -> None:
             elif ignore_system_shortcut(event):
                 continue
             elif is_primary_pointer_event(event, is_down=True):
+                if time.monotonic() < pointer_block_until:
+                    continue
                 pos = pointer_event_pos(event, screen_rect)
                 if pos is None:
                     continue
@@ -147,6 +151,15 @@ def main() -> None:
                         _launch_app(app)
                         screen, screen_rect = _restore_launcher_window()
                         buttons = _build_buttons(apps, screen_rect)
+                        pointer_events = [pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP]
+                        finger_down = getattr(pygame, "FINGERDOWN", None)
+                        finger_up = getattr(pygame, "FINGERUP", None)
+                        if finger_down is not None:
+                            pointer_events.append(finger_down)
+                        if finger_up is not None:
+                            pointer_events.append(finger_up)
+                        pygame.event.clear(pointer_events)
+                        pointer_block_until = time.monotonic() + 0.25
                         _draw_launcher_frame(screen, background, apps, buttons)
                         break
 
