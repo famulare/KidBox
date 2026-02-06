@@ -70,37 +70,6 @@ def _build_buttons(apps: List[LauncherApp], screen_rect: pygame.Rect) -> List[Bu
     return buttons
 
 
-def _build_escape_button(screen_rect: pygame.Rect) -> pygame.Rect:
-    size = max(32, int(min(screen_rect.width, screen_rect.height) * 0.04))
-    margin = max(12, int(size * 0.35))
-    return pygame.Rect(
-        screen_rect.right - size - margin,
-        screen_rect.bottom - size - margin,
-        size,
-        size,
-    )
-
-
-def _draw_escape_button(surface: pygame.Surface, rect: pygame.Rect) -> None:
-    pygame.draw.rect(surface, (245, 245, 245), rect, border_radius=8)
-    pygame.draw.rect(surface, (50, 50, 50), rect, width=2, border_radius=8)
-    inset = max(7, rect.width // 4)
-    pygame.draw.line(
-        surface,
-        (50, 50, 50),
-        (rect.left + inset, rect.top + inset),
-        (rect.right - inset, rect.bottom - inset),
-        width=3,
-    )
-    pygame.draw.line(
-        surface,
-        (50, 50, 50),
-        (rect.left + inset, rect.bottom - inset),
-        (rect.right - inset, rect.top + inset),
-        width=3,
-    )
-
-
 def _launch_app(app: LauncherApp) -> None:
     if not app.command:
         return
@@ -119,7 +88,6 @@ def main() -> None:
     background = (248, 244, 236)
 
     buttons = _build_buttons(apps, screen_rect)
-    escape_button = _build_escape_button(screen_rect)
 
     running = True
     while running:
@@ -132,15 +100,11 @@ def main() -> None:
             elif ignore_system_shortcut(event):
                 continue
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if escape_button.collidepoint(event.pos):
-                    pygame.quit()
-                    sys.exit(0)
                 for app, button in zip(apps, buttons):
                     if button.hit(event.pos):
                         _launch_app(app)
                         screen, screen_rect = create_fullscreen_window()
                         buttons = _build_buttons(apps, screen_rect)
-                        escape_button = _build_escape_button(screen_rect)
                         break
 
         screen.fill(background)
@@ -149,7 +113,6 @@ def main() -> None:
                 draw_placeholder_icon(screen, button.rect, app.name, border_width=0)
             else:
                 button.draw(screen)
-        _draw_escape_button(screen, escape_button)
         pygame.display.flip()
         clock.tick(60)
 
