@@ -69,6 +69,34 @@ The launcher supervises apps. Apps exit cleanly back to the launcher. If an app 
 
 ---
 
+## Screenshots
+
+### Launcher
+
+Fullscreen home screen with large, simple app targets.
+
+![ToddlerBox Launcher](assets/screenshots/launcher.png)
+
+### Paint
+
+Drawing canvas with kid-sized tools, palette, and autosave workflow.
+
+![ToddlerBox Paint App](assets/screenshots/paint.png)
+
+### Photos
+
+Main photo view with left thumbnail selector strip and swipe navigation.
+
+![ToddlerBox Photos App](assets/screenshots/photos.png)
+
+### Typing
+
+Large-format typing surface with per-character styling controls and recall.
+
+![ToddlerBox Typing App](assets/screenshots/typing.png)
+
+---
+
 ## Components
 
 ### Launcher
