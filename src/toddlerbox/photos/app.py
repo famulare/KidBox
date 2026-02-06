@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
+import json
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -76,19 +78,34 @@ def _photo_taken_at(path: Path) -> Optional[datetime]:
     return None
 
 
-def _photo_sort_key(path: Path) -> Tuple[int, float, str]:
-    taken = _photo_taken_at(path)
-    if taken is not None:
-        return (0, -taken.timestamp(), path.name.lower())
-    try:
-        mtime = path.stat().st_mtime
-    except OSError:
-        mtime = 0.0
-    return (1, -mtime, path.name.lower())
+def _list_photos(library_dir: Path, exif_cache: dict[str, Optional[float]]) -> Tuple[List[Path], bool]:
+    dirty = False
 
+    def sort_key(path: Path) -> Tuple[int, float, str]:
+        nonlocal dirty
+        rel = str(path.relative_to(library_dir))
+        if rel in exif_cache:
+            cached = exif_cache[rel]
+            if cached is not None:
+                return (0, -cached, path.name.lower())
+        else:
+            taken = _photo_taken_at(path)
+            if taken is not None:
+                exif_cache[rel] = taken.timestamp()
+                dirty = True
+                return (0, -exif_cache[rel], path.name.lower())
+            exif_cache[rel] = None
+            dirty = True
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        return (1, -mtime, path.name.lower())
 
-def _list_photos(library_dir: Path) -> List[Path]:
-    return sorted((path for path in library_dir.iterdir() if _is_image(path)), key=_photo_sort_key)
+    return (
+        sorted((path for path in library_dir.iterdir() if _is_image(path)), key=sort_key),
+        dirty,
+    )
 
 
 class PhotosApp:
@@ -105,6 +122,7 @@ class PhotosApp:
         self.photos_dir = dirs["photos"]
         self.library_dir = self.photos_dir / "library"
         self.thumb_dir = self.photos_dir / "thumbs"
+        self.exif_cache_path = self.thumb_dir / "exif_cache.json"
 
         if screen is None:
             self.screen, self.screen_rect = create_fullscreen_window()
@@ -129,10 +147,17 @@ class PhotosApp:
         self.thumb_size = self.thumb_width
         self.scroll_y = 0
 
-        self.items = [PhotoItem(path) for path in _list_photos(self.library_dir)]
+        self.exif_cache = self._load_exif_cache()
+        photo_paths, cache_dirty = _list_photos(self.library_dir, self.exif_cache)
+        self.items = [PhotoItem(path) for path in photo_paths]
         self.current_index = 0
         self.current_image: Optional[pygame.Surface] = None
-        self._ensure_thumbnails()
+        self.initial_thumb_count = int(self.config.get("photos", {}).get("initial_thumbs", 10))
+        self.thumb_load_batch = int(self.config.get("photos", {}).get("thumb_batch", 2))
+        self._thumb_queue = deque(range(len(self.items)))
+        self._load_initial_thumbnails()
+        if cache_dirty:
+            self._save_exif_cache()
         self._load_current_image()
 
         self.drag_start: Optional[Tuple[int, int]] = None
@@ -147,24 +172,93 @@ class PhotosApp:
         self.left_arrow = Button(rect=pygame.Rect(self.main_rect.left + 20, self.screen_rect.centery - 30, 50, 60), fill=(245, 245, 245))
         self.right_arrow = Button(rect=pygame.Rect(self.main_rect.right - 70, self.screen_rect.centery - 30, 50, 60), fill=(245, 245, 245))
 
-    def _ensure_thumbnails(self) -> None:
-        for item in self.items:
-            thumb_path = self.thumb_dir / _thumb_name(item.path)
+    def _load_exif_cache(self) -> dict[str, Optional[float]]:
+        try:
+            with self.exif_cache_path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                return {str(key): (val if isinstance(val, (int, float)) or val is None else None) for key, val in data.items()}
+        except Exception:
+            pass
+        return {}
+
+    def _save_exif_cache(self) -> None:
+        try:
+            tmp_path = self.exif_cache_path.with_suffix(".json.tmp")
+            with tmp_path.open("w", encoding="utf-8") as handle:
+                json.dump(self.exif_cache, handle)
+            tmp_path.replace(self.exif_cache_path)
+        except Exception:
+            pass
+
+    def _load_initial_thumbnails(self) -> None:
+        initial_count = max(0, min(self.initial_thumb_count, len(self._thumb_queue)))
+        for _ in range(initial_count):
+            self._load_next_thumbnail()
+
+    def _load_next_thumbnail(self) -> None:
+        if not self._thumb_queue:
+            return
+        idx = self._thumb_queue.popleft()
+        self._load_thumbnail_for_index(idx)
+
+    def _load_thumbnail_for_index(self, idx: int) -> None:
+        if idx < 0 or idx >= len(self.items):
+            return
+        item = self.items[idx]
+        if item.thumb is not None:
+            return
+        thumb_path = self.thumb_dir / _thumb_name(item.path)
+        try:
             source_mtime = item.path.stat().st_mtime
-            if thumb_path.exists() and thumb_path.stat().st_mtime >= source_mtime:
-                try:
+        except OSError:
+            return
+        if thumb_path.exists():
+            try:
+                if thumb_path.stat().st_mtime >= source_mtime:
                     loaded_thumb = pygame.image.load(str(thumb_path)).convert_alpha()
                     item.thumb = self._fit_thumb_surface(loaded_thumb)
-                    continue
-                except Exception:
-                    pass
-            try:
-                image = pygame.image.load(str(item.path)).convert_alpha()
-                thumb = self._fit_thumb_surface(image)
-                pygame.image.save(thumb, str(thumb_path))
-                item.thumb = thumb
+                    return
             except Exception:
-                item.thumb = None
+                pass
+        try:
+            image = pygame.image.load(str(item.path)).convert_alpha()
+            thumb = self._fit_thumb_surface(image)
+            pygame.image.save(thumb, str(thumb_path))
+            item.thumb = thumb
+        except Exception:
+            item.thumb = None
+
+    def _cleanup_caches(self) -> None:
+        try:
+            library_set = {str(path.relative_to(self.library_dir)) for path in self.library_dir.iterdir() if _is_image(path)}
+        except Exception:
+            library_set = set()
+
+        cache_dirty = False
+        for rel in list(self.exif_cache.keys()):
+            if rel not in library_set:
+                self.exif_cache.pop(rel, None)
+                cache_dirty = True
+        if cache_dirty:
+            self._save_exif_cache()
+
+        try:
+            for thumb_path in self.thumb_dir.iterdir():
+                if thumb_path.name == self.exif_cache_path.name or thumb_path.suffix.lower() != ".png":
+                    continue
+                name = thumb_path.stem
+                if "_" not in name:
+                    continue
+                stem, suffix = name.rsplit("_", 1)
+                source_path = self.library_dir / f"{stem}.{suffix}"
+                if not source_path.exists():
+                    try:
+                        thumb_path.unlink()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     def _fit_thumb_surface(self, surface: pygame.Surface) -> pygame.Surface:
         if surface.get_width() <= self.thumb_width and surface.get_height() <= self.thumb_size:
@@ -248,6 +342,7 @@ class PhotosApp:
     def run(self, *, quit_on_exit: bool = True) -> None:
         running = True
         self._render()
+        self._cleanup_caches()
         while running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -310,6 +405,8 @@ class PhotosApp:
                         self._scroll_thumbnails(-40 if event.button == 4 else 40)
 
             self._render()
+            for _ in range(self.thumb_load_batch):
+                self._load_next_thumbnail()
             self.clock.tick(60)
 
         if quit_on_exit:
