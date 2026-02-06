@@ -71,7 +71,8 @@ class Stroke:
 
 
 def _save_surface_atomic(surface: pygame.Surface, path: Path) -> None:
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    # Keep a .png suffix so pygame writes a PNG-encoded file.
+    tmp_path = path.with_name(f".{path.stem}.tmp{path.suffix}")
     pygame.image.save(surface, str(tmp_path))
     os.replace(tmp_path, path)
 
@@ -80,6 +81,23 @@ def _list_archives(paint_dir: Path) -> List[Path]:
     files = list(paint_dir.glob("*.png"))
     files.sort(reverse=True)
     return files
+
+
+def _rollover_latest_snapshot(paint_dir: Path, now: Optional[datetime] = None) -> Optional[Path]:
+    latest_path = paint_dir / "latest.png"
+    if not latest_path.exists():
+        return None
+    stamp = (now or datetime.now()).strftime("%Y-%m-%d_%H%M%S")
+    archive_path = paint_dir / f"{stamp}.png"
+    counter = 1
+    while archive_path.exists():
+        archive_path = paint_dir / f"{stamp}_{counter}.png"
+        counter += 1
+    try:
+        os.replace(latest_path, archive_path)
+    except OSError:
+        return None
+    return archive_path
 
 
 def _load_icon(path: Path, size: Tuple[int, int], *, preserve_aspect: bool = True) -> Optional[pygame.Surface]:
@@ -214,6 +232,7 @@ class PaintApp:
         self.data_root = get_data_root(self.config)
         dirs = ensure_directories(self.data_root)
         self.paint_dir = dirs["paint"]
+        _rollover_latest_snapshot(self.paint_dir)
 
         self.screen, self.screen_rect = create_fullscreen_window()
         self.clock = pygame.time.Clock()
@@ -539,6 +558,9 @@ class PaintApp:
         self.undo_stack = []
 
     def _open_recall(self) -> None:
+        # Persist current canvas before showing recall so latest work appears immediately.
+        self._autosave_latest()
+        self._update_thumbnail_button()
         archives = _list_archives(self.paint_dir)
         if not archives and self.recall_demo_path.exists():
             archives = [self.recall_demo_path]

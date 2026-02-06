@@ -6,6 +6,7 @@ from kidbox.paint.app import _fountain_width_for_direction
 from kidbox.paint.app import _is_primary_pointer_event
 from kidbox.paint.app import _load_canvas_image
 from kidbox.paint.app import _list_archives
+from kidbox.paint.app import _rollover_latest_snapshot
 
 
 def test_list_archives_includes_latest(tmp_path):
@@ -17,6 +18,36 @@ def test_list_archives_includes_latest(tmp_path):
     names = [p.name for p in archives]
     assert "latest.png" in names
     assert names[0] == "latest.png"
+
+
+def test_rollover_latest_snapshot_archives_existing_latest(tmp_path):
+    latest = tmp_path / "latest.png"
+    latest.write_bytes(b"session")
+
+    archived = _rollover_latest_snapshot(tmp_path)
+
+    assert archived is not None
+    assert archived.exists()
+    assert archived.read_bytes() == b"session"
+    assert not latest.exists()
+
+
+def test_rollover_latest_snapshot_adds_counter_on_collision(tmp_path):
+    latest = tmp_path / "latest.png"
+    latest.write_bytes(b"new")
+    existing = tmp_path / "2026-02-06_101112.png"
+    existing.write_bytes(b"old")
+
+    class FixedNow:
+        def strftime(self, _fmt: str) -> str:
+            return "2026-02-06_101112"
+
+    archived = _rollover_latest_snapshot(tmp_path, now=FixedNow())
+
+    assert archived == tmp_path / "2026-02-06_101112_1.png"
+    assert archived.exists()
+    assert archived.read_bytes() == b"new"
+    assert existing.read_bytes() == b"old"
 
 
 def test_primary_pointer_event_accepts_left_mouse_button():
