@@ -56,8 +56,10 @@ class PhotosApp:
         )
         self.main_rect = pygame.Rect(0, 0, self.screen_rect.width - self.strip_width, self.screen_rect.height)
 
-        self.thumb_size = self.strip_width - 24
-        self.thumb_gap = 14
+        self.thumb_padding_x = 12
+        self.thumb_gap = 12
+        self.thumb_width = max(1, self.strip_rect.width - (self.thumb_padding_x * 2))
+        self.thumb_size = self.thumb_width
         self.scroll_y = 0
 
         self.items = [PhotoItem(path) for path in sorted(self.library_dir.iterdir()) if _is_image(path)]
@@ -85,17 +87,23 @@ class PhotosApp:
             source_mtime = item.path.stat().st_mtime
             if thumb_path.exists() and thumb_path.stat().st_mtime >= source_mtime:
                 try:
-                    item.thumb = pygame.image.load(str(thumb_path)).convert_alpha()
+                    loaded_thumb = pygame.image.load(str(thumb_path)).convert_alpha()
+                    item.thumb = self._fit_thumb_surface(loaded_thumb)
                     continue
                 except Exception:
                     pass
             try:
                 image = pygame.image.load(str(item.path)).convert_alpha()
-                thumb = _scale_to_fit(image, (self.thumb_size, self.thumb_size))
+                thumb = self._fit_thumb_surface(image)
                 pygame.image.save(thumb, str(thumb_path))
                 item.thumb = thumb
             except Exception:
                 item.thumb = None
+
+    def _fit_thumb_surface(self, surface: pygame.Surface) -> pygame.Surface:
+        if surface.get_width() <= self.thumb_width and surface.get_height() <= self.thumb_size:
+            return surface
+        return _scale_to_fit(surface, (self.thumb_width, self.thumb_size))
 
     def _load_current_image(self) -> None:
         if not self.items:
@@ -122,9 +130,9 @@ class PhotosApp:
         y = self.thumb_gap - self.scroll_y
         for idx, item in enumerate(self.items):
             rect = pygame.Rect(
-                self.strip_rect.left + 12,
+                self.strip_rect.left + self.thumb_padding_x,
                 y,
-                self.thumb_size,
+                self.thumb_width,
                 self.thumb_size,
             )
             if rect.collidepoint(pos):
@@ -150,9 +158,9 @@ class PhotosApp:
         y = self.thumb_gap - self.scroll_y
         for idx, item in enumerate(self.items):
             rect = pygame.Rect(
-                self.strip_rect.left + 12,
+                self.strip_rect.left + self.thumb_padding_x,
                 y,
-                self.thumb_size,
+                self.thumb_width,
                 self.thumb_size,
             )
             if rect.bottom >= 0 and rect.top <= self.screen_rect.height:
