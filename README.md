@@ -41,7 +41,7 @@ It is a small, comprehensible appliance built on top of Ubuntu.
 
 ```
 ┌────────────────────────────┐
-│           ToddlerBox           │
+│        ToddlerBox          │
 │  (Fullscreen Launcher)     │
 │                            │
 │  [ Paint ] [ Photos ]      │
