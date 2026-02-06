@@ -190,6 +190,8 @@ class PhotosApp:
         self.strip_drag_last_y: Optional[int] = None
         self.strip_pressed_index: Optional[int] = None
         self.strip_drag_distance = 0
+        self.pointer_down = False
+        self.scroll_velocity = 0.0
         self.show_arrows = bool(self.config.get("photos", {}).get("show_arrows", False))
         self.font = pygame.font.SysFont("sans", 18)
 
@@ -346,6 +348,16 @@ class PhotosApp:
     def _scroll_thumbnails(self, delta: int) -> None:
         self.scroll_y = max(0, min(self._max_scroll(), self.scroll_y + delta))
 
+    def _update_scroll_momentum(self) -> bool:
+        if self.strip_drag_last_y is not None:
+            return False
+        if abs(self.scroll_velocity) < 0.5:
+            self.scroll_velocity = 0.0
+            return False
+        self._scroll_thumbnails(int(round(self.scroll_velocity)))
+        self.scroll_velocity *= 0.92
+        return True
+
     def _render(self) -> None:
         self.screen.fill((246, 246, 246))
         pygame.draw.rect(self.screen, (230, 230, 230), self.strip_rect)
@@ -406,12 +418,16 @@ class PhotosApp:
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                     running = False
                 elif is_primary_pointer_event(event, is_down=True):
+                    if self.pointer_down:
+                        continue
                     pos = pointer_event_pos(event, self.screen_rect)
                     if pos is None:
                         continue
+                    self.pointer_down = True
                     if self.home_button.hit(pos):
                         running = False
                     elif self.strip_rect.collidepoint(pos):
+                        self.scroll_velocity = 0.0
                         self.strip_drag_last_y = pos[1]
                         self.strip_pressed_index = self._thumb_index_at_pos(pos)
                         self.strip_drag_distance = 0
@@ -423,19 +439,33 @@ class PhotosApp:
                             self._change_index(-1)
                         elif self.right_arrow.hit(pos):
                             self._change_index(1)
-                elif event.type == pygame.MOUSEMOTION or (FINGERMOTION is not None and event.type == FINGERMOTION):
-                    pos = pointer_event_pos(event, self.screen_rect)
-                    if pos is None:
+                elif event.type == pygame.MOUSEMOTION:
+                    if not self.pointer_down:
                         continue
+                    if self.drag_start:
+                        self.drag_delta = (event.pos[0] - self.drag_start[0], event.pos[1] - self.drag_start[1])
+                    if self.strip_drag_last_y is not None:
+                        dy = event.pos[1] - self.strip_drag_last_y
+                        self._scroll_thumbnails(-dy)
+                        self.scroll_velocity = 0.8 * self.scroll_velocity + 0.2 * (-dy)
+                        last_scroll_ms = pygame.time.get_ticks()
+                        self.strip_drag_distance += abs(dy)
+                        self.strip_drag_last_y = event.pos[1]
+                elif FINGERMOTION is not None and event.type == FINGERMOTION and self.pointer_down:
+                    pos = (int(event.x * self.screen_rect.width), int(event.y * self.screen_rect.height))
                     if self.drag_start:
                         self.drag_delta = (pos[0] - self.drag_start[0], pos[1] - self.drag_start[1])
                     if self.strip_drag_last_y is not None:
                         dy = pos[1] - self.strip_drag_last_y
                         self._scroll_thumbnails(-dy)
+                        self.scroll_velocity = 0.8 * self.scroll_velocity + 0.2 * (-dy)
                         last_scroll_ms = pygame.time.get_ticks()
                         self.strip_drag_distance += abs(dy)
                         self.strip_drag_last_y = pos[1]
                 elif is_primary_pointer_event(event, is_down=False):
+                    if not self.pointer_down:
+                        continue
+                    self.pointer_down = False
                     pos = pointer_event_pos(event, self.screen_rect)
                     if pos is None:
                         continue
@@ -467,6 +497,8 @@ class PhotosApp:
                         self._scroll_thumbnails(-40 if event.button == 4 else 40)
                         last_scroll_ms = pygame.time.get_ticks()
 
+            if self._update_scroll_momentum():
+                last_scroll_ms = pygame.time.get_ticks()
             self._render()
             now_ms = pygame.time.get_ticks()
             active = (
