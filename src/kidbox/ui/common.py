@@ -130,9 +130,10 @@ def is_escape_chord(event: pygame.event.Event) -> bool:
     if event.key != pygame.K_HOME:
         return False
     mods = event.mod
-    required = pygame.KMOD_CTRL | pygame.KMOD_ALT
+    has_ctrl = bool(mods & pygame.KMOD_CTRL)
+    has_alt = bool(mods & pygame.KMOD_ALT)
     disallowed = pygame.KMOD_SHIFT | pygame.KMOD_META | pygame.KMOD_GUI | pygame.KMOD_ALTGR
-    return (mods & required) == required and (mods & disallowed) == 0
+    return has_ctrl and has_alt and (mods & disallowed) == 0
 
 
 def ignore_system_shortcut(event: pygame.event.Event) -> bool:
