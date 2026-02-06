@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -37,12 +38,36 @@ def _is_primary_pointer_event(event: pygame.event.Event, *, is_down: bool) -> bo
     return finger_type is not None and event.type == finger_type
 
 
+def _fountain_width_for_direction(
+    size: int,
+    start: Point,
+    end: Point,
+    *,
+    nib_angle_degrees: float = 35.0,
+    min_ratio: float = 0.2,
+    max_ratio: float = 1.8,
+) -> int:
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    if dx == 0 and dy == 0:
+        return max(1, int(round(size * ((min_ratio + max_ratio) / 2))))
+
+    direction = math.atan2(dy, dx)
+    nib_angle = math.radians(nib_angle_degrees)
+    delta = direction - nib_angle
+    # Broad-edge nib behavior: narrow parallel to nib axis, wide when crossing it.
+    blend = abs(math.sin(delta))
+    ratio = min_ratio + (max_ratio - min_ratio) * blend
+    return max(1, int(round(size * ratio)))
+
+
 @dataclass
 class Stroke:
     tool: str
     size: int
     color: Color
     points: List[Point]
+    fountain_width: float = 0.0
 
 
 def _save_surface_atomic(surface: pygame.Surface, path: Path) -> None:
@@ -97,6 +122,11 @@ def _draw_stamp(
 
 
 def _draw_segment(surface: pygame.Surface, stroke: Stroke, start: Point, end: Point) -> None:
+    if stroke.tool == "fountain":
+        width = float(_fountain_width_for_direction(stroke.size, start, end))
+        _draw_fountain_segment(surface, stroke.color, start, end, width, width)
+        return
+
     distance = max(1, pygame.math.Vector2(end).distance_to(start))
     steps = max(1, int(distance / 2))
     for idx in range(steps + 1):
@@ -107,9 +137,42 @@ def _draw_segment(surface: pygame.Surface, stroke: Stroke, start: Point, end: Po
         kind = stroke.tool
         if kind == "eraser":
             kind = "round"
-        if kind == "fountain":
-            pressure = max(0.3, min(1.2, 1.2 - (distance / 30)))
         _draw_stamp(surface, kind, stroke.size, stroke.color, (x, y), pressure=pressure)
+
+
+def _draw_fountain_segment(
+    surface: pygame.Surface,
+    color: Color,
+    start: Point,
+    end: Point,
+    start_width: float,
+    end_width: float,
+) -> None:
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    length = math.hypot(dx, dy)
+    half_start = max(0.5, start_width * 0.5)
+    half_end = max(0.5, end_width * 0.5)
+
+    if length < 1e-6:
+        radius = max(1, int(round(max(half_start, half_end))))
+        pygame.draw.circle(surface, color, start, radius)
+        return
+
+    nx = -dy / length
+    ny = dx / length
+    quad = [
+        (start[0] + nx * half_start, start[1] + ny * half_start),
+        (start[0] - nx * half_start, start[1] - ny * half_start),
+        (end[0] - nx * half_end, end[1] - ny * half_end),
+        (end[0] + nx * half_end, end[1] + ny * half_end),
+    ]
+    points = [(int(round(x)), int(round(y))) for x, y in quad]
+    pygame.draw.polygon(surface, color, points)
+
+    # Round joins avoid tiny corner spikes when direction changes quickly.
+    pygame.draw.circle(surface, color, (int(round(start[0])), int(round(start[1]))), max(1, int(round(half_start))))
+    pygame.draw.circle(surface, color, (int(round(end[0])), int(round(end[1]))), max(1, int(round(half_end))))
 
 
 def _bucket_fill(surface: pygame.Surface, pos: Point, color: Color) -> None:
@@ -411,6 +474,35 @@ class PaintApp:
             return
         local_pos = (pos[0] - self.canvas_rect.left, pos[1] - self.canvas_rect.top)
         last_point = self.current_stroke.points[-1]
+        if self.current_stroke.tool == "fountain":
+            # Densify fountain updates to avoid visible segment artifacts.
+            distance = max(1.0, pygame.math.Vector2(local_pos).distance_to(last_point))
+            steps = max(1, int(distance / 1.5))
+            prev = last_point
+            width = self.current_stroke.fountain_width
+            for idx in range(1, steps + 1):
+                t = idx / steps
+                next_point = (
+                    int(last_point[0] + (local_pos[0] - last_point[0]) * t),
+                    int(last_point[1] + (local_pos[1] - last_point[1]) * t),
+                )
+                target_width = float(_fountain_width_for_direction(self.current_stroke.size, prev, next_point))
+                if width <= 0:
+                    width = target_width
+                smoothed_width = width + (target_width - width) * 0.35
+                _draw_fountain_segment(
+                    self.canvas_surface,
+                    self.current_stroke.color,
+                    prev,
+                    next_point,
+                    width,
+                    smoothed_width,
+                )
+                width = smoothed_width
+                self.current_stroke.points.append(next_point)
+                prev = next_point
+            self.current_stroke.fountain_width = width
+            return
         self.current_stroke.points.append(local_pos)
         _draw_segment(self.canvas_surface, self.current_stroke, last_point, local_pos)
 
