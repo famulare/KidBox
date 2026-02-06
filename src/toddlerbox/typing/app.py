@@ -158,8 +158,10 @@ class TypingApp:
         self.current_text_size = self.default_text_size
         self.font_cache: Dict[Tuple[int, str], pygame.font.Font] = {}
         self.size_sample_fonts = {size: _create_text_font(size, "plain") for size in self.size_values}
+        self.default_line_style = (self.default_text_size, "plain")
 
         self.rich_lines: List[List[Glyph]] = [[]]
+        self.line_styles: List[Tuple[int, str]] = [self.default_line_style]
         self.text_lines: List[str] = [""]
         self.undo_stack: List[EditOp] = []
         self.cursor_row = 0
@@ -271,6 +273,19 @@ class TypingApp:
         if not self.text_lines:
             self.text_lines = [""]
             self.rich_lines = [[]]
+            self.line_styles = [self.default_line_style]
+            return
+        prior_styles = self.line_styles if hasattr(self, "line_styles") else []
+        next_styles: List[Tuple[int, str]] = []
+        for idx, line in enumerate(self.rich_lines):
+            if line:
+                last = line[-1]
+                next_styles.append((last.size, last.style))
+            elif idx < len(prior_styles):
+                next_styles.append(prior_styles[idx])
+            else:
+                next_styles.append(self.default_line_style)
+        self.line_styles = next_styles
 
     def _push_undo(self, op: EditOp) -> None:
         self.undo_stack.append(op)
@@ -282,6 +297,13 @@ class TypingApp:
         right = self.rich_lines[row][col:]
         self.rich_lines[row] = left
         self.rich_lines.insert(row + 1, right)
+        if left:
+            self.line_styles[row] = (left[-1].size, left[-1].style)
+        if right:
+            right_style = (right[-1].size, right[-1].style)
+        else:
+            right_style = (self.current_text_size, self.text_style)
+        self.line_styles.insert(row + 1, right_style)
         self.text_lines[row] = "".join(g.char for g in left)
         self.text_lines.insert(row + 1, "".join(g.char for g in right))
 
@@ -290,11 +312,17 @@ class TypingApp:
             return
         self.rich_lines[row].extend(self.rich_lines[row + 1])
         self.rich_lines.pop(row + 1)
+        if len(self.line_styles) > row + 1:
+            self.line_styles.pop(row + 1)
+        if self.rich_lines[row]:
+            last = self.rich_lines[row][-1]
+            self.line_styles[row] = (last.size, last.style)
         self.text_lines[row] = "".join(g.char for g in self.rich_lines[row])
         self.text_lines.pop(row + 1)
 
     def _insert_glyph_at(self, row: int, col: int, glyph: Glyph) -> None:
         self.rich_lines[row].insert(col, Glyph(char=glyph.char, size=glyph.size, style=glyph.style))
+        self.line_styles[row] = (glyph.size, glyph.style)
         self._sync_text_line(row)
 
     def _remove_glyph_at(self, row: int, col: int) -> Optional[Glyph]:
@@ -395,6 +423,7 @@ class TypingApp:
 
     def _clear_text(self) -> None:
         self.rich_lines = [[]]
+        self.line_styles = [self.default_line_style]
         self.text_lines = [""]
         self.undo_stack = []
         self.cursor_row = 0
@@ -489,10 +518,13 @@ class TypingApp:
         if style is not None:
             self.text_style = style
 
-    def _line_font_height(self, row: int) -> int:
+    def _line_font_height(self, row: int, *, for_cursor_row: bool = False) -> int:
         line = self.rich_lines[row]
         if not line:
-            return self._get_font(self.current_text_size, self.text_style).get_height()
+            if for_cursor_row:
+                return self._get_font(self.current_text_size, self.text_style).get_height()
+            size, style = self.line_styles[row]
+            return self._get_font(size, style).get_height()
         return max(self._get_font(g.size, g.style).get_height() for g in line)
 
     def _open_recall(self) -> None:

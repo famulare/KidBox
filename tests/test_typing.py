@@ -13,6 +13,8 @@ def test_delete_line_join_undo_restores_newline():
         [Glyph(char=c, size=25, style="plain") for c in "world"],
     ]
     app.text_lines = ["hello", "world"]
+    app.default_line_style = (25, "plain")
+    app.line_styles = [(25, "plain"), (25, "plain")]
     app.undo_stack = []
     app.cursor_row = 1
     app.cursor_col = 0
