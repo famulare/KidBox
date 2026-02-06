@@ -1,5 +1,6 @@
 import json
 
+from kidbox.typing.app import Glyph
 from kidbox.typing.app import TypingApp
 from kidbox.typing.app import _load_recent_sessions
 from kidbox.typing.app import _preview_text
@@ -7,6 +8,10 @@ from kidbox.typing.app import _preview_text
 
 def test_delete_line_join_undo_restores_newline():
     app = TypingApp.__new__(TypingApp)
+    app.rich_lines = [
+        [Glyph(char=c, size=25, style="plain") for c in "hello"],
+        [Glyph(char=c, size=25, style="plain") for c in "world"],
+    ]
     app.text_lines = ["hello", "world"]
     app.undo_stack = []
     app.cursor_row = 1
@@ -14,7 +19,7 @@ def test_delete_line_join_undo_restores_newline():
 
     op = app._delete_backward()
     assert op is not None
-    assert op.text == "\n"
+    assert op.newline
     app._push_undo(op)
 
     app._undo()
@@ -34,12 +39,26 @@ def test_load_recent_sessions_skips_invalid_lines(tmp_path):
     sessions = tmp_path / "sessions.jsonl"
     with sessions.open("w", encoding="utf-8") as handle:
         handle.write("{bad json}\n")
-        handle.write(json.dumps({"timestamp": "2026-02-06T10:00:00", "text": "first"}) + "\n")
-        handle.write(json.dumps({"timestamp": "2026-02-06T10:01:00", "text": "second"}) + "\n")
+        handle.write(
+            json.dumps(
+                {
+                    "timestamp": "2026-02-06T10:00:00",
+                    "rich_lines": [[{"char": "f", "size": 25, "style": "plain"}]],
+                }
+            )
+            + "\n"
+        )
+        handle.write(
+            json.dumps(
+                {
+                    "timestamp": "2026-02-06T10:01:00",
+                    "rich_lines": [[{"char": "s", "size": 25, "style": "plain"}]],
+                }
+            )
+            + "\n"
+        )
         handle.write(json.dumps({"timestamp": "2026-02-06T10:02:00", "text": 3}) + "\n")
 
     items = _load_recent_sessions(sessions)
-    assert items == [
-        ("2026-02-06T10:01:00", "second"),
-        ("2026-02-06T10:00:00", "first"),
-    ]
+    assert [item.label for item in items] == ["2026-02-06T10:01:00", "2026-02-06T10:00:00"]
+    assert [item.preview for item in items] == ["s", "f"]

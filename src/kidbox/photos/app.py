@@ -8,7 +8,13 @@ import pygame
 
 from kidbox.config import load_config
 from kidbox.paths import ensure_directories, get_data_root
-from kidbox.ui.common import Button, create_fullscreen_window, draw_home_button
+from kidbox.ui.common import (
+    Button,
+    create_fullscreen_window,
+    draw_home_button,
+    is_primary_pointer_event,
+    pointer_event_pos,
+)
 
 
 @dataclass
@@ -49,12 +55,12 @@ class PhotosApp:
         base_strip_width = max(160, int(self.screen_rect.width * 0.25))
         self.strip_width = max(112, int(base_strip_width * 0.7))
         self.strip_rect = pygame.Rect(
-            self.screen_rect.width - self.strip_width,
+            0,
             0,
             self.strip_width,
             self.screen_rect.height,
         )
-        self.main_rect = pygame.Rect(0, 0, self.screen_rect.width - self.strip_width, self.screen_rect.height)
+        self.main_rect = pygame.Rect(self.strip_width, 0, self.screen_rect.width - self.strip_width, self.screen_rect.height)
 
         self.thumb_padding_x = 12
         self.thumb_gap = 12
@@ -76,12 +82,9 @@ class PhotosApp:
         self.show_arrows = bool(self.config.get("photos", {}).get("show_arrows", False))
         self.font = pygame.font.SysFont("sans", 18)
 
-        self.home_button = Button(rect=pygame.Rect(20, 20, 70, 50), fill=(240, 240, 240))
-        self.left_arrow = Button(rect=pygame.Rect(20, self.screen_rect.centery - 30, 50, 60), fill=(245, 245, 245))
-        self.right_arrow = Button(
-            rect=pygame.Rect(self.main_rect.right - 70, self.screen_rect.centery - 30, 50, 60),
-            fill=(245, 245, 245),
-        )
+        self.home_button = Button(rect=pygame.Rect(self.screen_rect.width - 90, 20, 70, 50), fill=(240, 240, 240))
+        self.left_arrow = Button(rect=pygame.Rect(self.main_rect.left + 20, self.screen_rect.centery - 30, 50, 60), fill=(245, 245, 245))
+        self.right_arrow = Button(rect=pygame.Rect(self.main_rect.right - 70, self.screen_rect.centery - 30, 50, 60), fill=(245, 245, 245))
 
     def _ensure_thumbnails(self) -> None:
         for item in self.items:
@@ -190,20 +193,23 @@ class PhotosApp:
                     running = False
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                     running = False
-                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    if self.home_button.hit(event.pos):
+                elif is_primary_pointer_event(event, is_down=True):
+                    pos = pointer_event_pos(event, self.screen_rect)
+                    if pos is None:
+                        continue
+                    if self.home_button.hit(pos):
                         running = False
-                    elif self.strip_rect.collidepoint(event.pos):
-                        self.strip_drag_last_y = event.pos[1]
-                        self.strip_pressed_index = self._thumb_index_at_pos(event.pos)
+                    elif self.strip_rect.collidepoint(pos):
+                        self.strip_drag_last_y = pos[1]
+                        self.strip_pressed_index = self._thumb_index_at_pos(pos)
                         self.strip_drag_distance = 0
-                    elif self.main_rect.collidepoint(event.pos):
-                        self.drag_start = event.pos
+                    elif self.main_rect.collidepoint(pos):
+                        self.drag_start = pos
                         self.drag_delta = (0, 0)
                     if self.show_arrows:
-                        if self.left_arrow.hit(event.pos):
+                        if self.left_arrow.hit(pos):
                             self._change_index(-1)
-                        elif self.right_arrow.hit(event.pos):
+                        elif self.right_arrow.hit(pos):
                             self._change_index(1)
                 elif event.type == pygame.MOUSEMOTION and self.drag_start:
                     self.drag_delta = (event.pos[0] - self.drag_start[0], event.pos[1] - self.drag_start[1])
@@ -212,7 +218,10 @@ class PhotosApp:
                     self._scroll_thumbnails(-dy)
                     self.strip_drag_distance += abs(dy)
                     self.strip_drag_last_y = event.pos[1]
-                elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                elif is_primary_pointer_event(event, is_down=False):
+                    pos = pointer_event_pos(event, self.screen_rect)
+                    if pos is None:
+                        continue
                     if self.drag_start:
                         dx, dy = self.drag_delta
                         if abs(dx) > 80 and abs(dx) > abs(dy):
@@ -225,7 +234,7 @@ class PhotosApp:
                     if (
                         self.strip_pressed_index is not None
                         and self.strip_drag_distance < 10
-                        and self._thumb_index_at_pos(event.pos) == self.strip_pressed_index
+                        and self._thumb_index_at_pos(pos) == self.strip_pressed_index
                     ):
                         self.current_index = self.strip_pressed_index
                         self._load_current_image()

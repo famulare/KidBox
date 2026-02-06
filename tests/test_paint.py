@@ -3,10 +3,10 @@ from pathlib import Path
 import pygame
 
 from kidbox.paint.app import _fountain_width_for_direction
-from kidbox.paint.app import _is_primary_pointer_event
 from kidbox.paint.app import _load_canvas_image
 from kidbox.paint.app import _list_archives
 from kidbox.paint.app import _rollover_latest_snapshot
+from kidbox.ui.common import is_primary_pointer_event
 
 
 def test_list_archives_includes_latest(tmp_path):
@@ -52,17 +52,17 @@ def test_rollover_latest_snapshot_adds_counter_on_collision(tmp_path):
 
 def test_primary_pointer_event_accepts_left_mouse_button():
     event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=(10, 10))
-    assert _is_primary_pointer_event(event, is_down=True)
+    assert is_primary_pointer_event(event, is_down=True)
 
 
 def test_primary_pointer_event_accepts_touch_emulated_mouse_button_zero():
     event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=0, pos=(10, 10), touch=True)
-    assert _is_primary_pointer_event(event, is_down=True)
+    assert is_primary_pointer_event(event, is_down=True)
 
 
 def test_primary_pointer_event_rejects_right_mouse_button():
     event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=3, pos=(10, 10))
-    assert not _is_primary_pointer_event(event, is_down=True)
+    assert not is_primary_pointer_event(event, is_down=True)
 
 
 def test_fountain_width_changes_with_direction():

@@ -5,13 +5,26 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Deque, List, Optional, Tuple
+from typing import Deque, Dict, List, Optional, Tuple
 
 import pygame
 
 from kidbox.config import load_config
 from kidbox.paths import ensure_directories, get_data_root
-from kidbox.ui.common import Button, create_fullscreen_window, draw_home_button
+from kidbox.ui.common import (
+    Button,
+    create_fullscreen_window,
+    draw_home_button,
+    is_primary_pointer_event,
+    pointer_event_pos,
+)
+
+
+@dataclass
+class Glyph:
+    char: str
+    size: int
+    style: str
 
 
 @dataclass
@@ -19,16 +32,17 @@ class EditOp:
     kind: str
     row: int
     col: int
-    text: str
-    cursor_row: int
-    cursor_col: int
+    glyph: Optional[Glyph] = None
+    newline: bool = False
+    cursor_row: int = 0
+    cursor_col: int = 0
 
 
 @dataclass
 class RecallSession:
     label: str
-    text: str
     preview: str
+    rich_lines: List[List[Glyph]]
     is_current: bool = False
 
 
@@ -37,10 +51,58 @@ def _preview_text(text: str, limit: int = 150) -> str:
     return normalized[:limit]
 
 
-def _load_recent_sessions(path: Path, *, limit: int = 200) -> List[Tuple[str, str]]:
+def _create_text_font(size: int, style: str = "plain") -> pygame.font.Font:
+    bold = style == "bold"
+    italic = style == "italic"
+    if pygame.font.match_font("ubuntu"):
+        return pygame.font.SysFont("ubuntu", size, bold=bold, italic=italic)
+    return pygame.font.SysFont("sans", size, bold=bold, italic=italic)
+
+
+def _serialize_rich_lines(lines: List[List[Glyph]]) -> List[List[dict]]:
+    return [
+        [{"char": glyph.char, "size": glyph.size, "style": glyph.style} for glyph in line]
+        for line in lines
+    ]
+
+
+def _deserialize_rich_lines(payload: object) -> Optional[List[List[Glyph]]]:
+    if not isinstance(payload, list):
+        return None
+    parsed: List[List[Glyph]] = []
+    for raw_line in payload:
+        if not isinstance(raw_line, list):
+            return None
+        parsed_line: List[Glyph] = []
+        for raw_glyph in raw_line:
+            if not isinstance(raw_glyph, dict):
+                return None
+            char = raw_glyph.get("char")
+            size = raw_glyph.get("size")
+            style = raw_glyph.get("style")
+            if not isinstance(char, str) or len(char) != 1:
+                return None
+            if not isinstance(size, int) or size <= 0:
+                return None
+            if style not in {"plain", "bold", "italic"}:
+                return None
+            parsed_line.append(Glyph(char=char, size=size, style=style))
+        parsed.append(parsed_line)
+    return parsed if parsed else [[]]
+
+
+def _clone_rich_lines(lines: List[List[Glyph]]) -> List[List[Glyph]]:
+    return [[Glyph(char=g.char, size=g.size, style=g.style) for g in line] for line in lines]
+
+
+def _rich_to_text(lines: List[List[Glyph]]) -> str:
+    return "\n".join("".join(g.char for g in line) for line in lines)
+
+
+def _load_recent_sessions(path: Path, *, limit: int = 200) -> List[RecallSession]:
     if not path.exists():
         return []
-    recent: Deque[Tuple[str, str]] = deque(maxlen=limit)
+    recent: Deque[RecallSession] = deque(maxlen=limit)
     try:
         with path.open("r", encoding="utf-8") as handle:
             for raw in handle:
@@ -51,12 +113,18 @@ def _load_recent_sessions(path: Path, *, limit: int = 200) -> List[Tuple[str, st
                     record = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                text = record.get("text")
-                if not isinstance(text, str):
+                rich_lines = _deserialize_rich_lines(record.get("rich_lines"))
+                if rich_lines is None:
                     continue
-                timestamp = record.get("timestamp")
-                label = str(timestamp) if timestamp else "Saved"
-                recent.append((label, text))
+                text = _rich_to_text(rich_lines)
+                label = str(record.get("timestamp") or "Saved")
+                recent.append(
+                    RecallSession(
+                        label=label,
+                        preview=_preview_text(text),
+                        rich_lines=rich_lines,
+                    )
+                )
     except OSError:
         return []
     return list(reversed(recent))
@@ -73,118 +141,218 @@ class TypingApp:
         self.screen, self.screen_rect = create_fullscreen_window()
         self.clock = pygame.time.Clock()
 
-        font_size = 20
-        self.font = pygame.font.SysFont("sans", font_size)
+        self.ui_font = pygame.font.SysFont("sans", 20)
+        self.default_text_size = 25
+        self.size_values = [self.default_text_size, self.default_text_size * 2, self.default_text_size * 4]
+        self.text_style = "plain"
+        self.current_text_size = self.default_text_size
+        self.font_cache: Dict[Tuple[int, str], pygame.font.Font] = {}
+        self.size_sample_fonts = {size: _create_text_font(size, "plain") for size in self.size_values}
+
+        self.rich_lines: List[List[Glyph]] = [[]]
         self.text_lines: List[str] = [""]
         self.undo_stack: List[EditOp] = []
         self.cursor_row = 0
         self.cursor_col = 0
 
-        button_w = 110
-        button_h = 50
-        self.home_button = Button(rect=pygame.Rect(20, 20, 70, button_h), fill=(240, 240, 240))
-        self.undo_button = Button(
-            rect=pygame.Rect(self.screen_rect.width - button_w * 2 - 30, 20, button_w, button_h),
-            label="Undo",
-            fill=(240, 240, 240),
+        self.margin = 16
+        self.menu_pad = 10
+        self.menu_gap = 10
+        self.menu_bg = (238, 234, 226)
+        self.tool_size = max(44, min(56, int(self.screen_rect.height * 0.06)))
+        base_panel_width = self.tool_size * 2 + self.menu_gap + self.menu_pad * 2
+        panel_width = min(self.screen_rect.width - (self.margin * 3 + 240), base_panel_width * 2)
+        self.controls_rect = pygame.Rect(
+            self.margin,
+            self.margin,
+            max(220, panel_width),
+            self.screen_rect.height - 2 * self.margin,
         )
-        self.recall_button = Button(
-            rect=pygame.Rect(self.screen_rect.width - button_w * 3 - 40, 20, button_w, button_h),
-            label="Recall",
-            fill=(240, 240, 240),
+        self.text_rect = pygame.Rect(
+            self.controls_rect.right + self.margin,
+            self.margin,
+            self.screen_rect.width - self.controls_rect.width - 3 * self.margin,
+            self.screen_rect.height - 2 * self.margin,
         )
+
+        home_size = max(40, int(self.tool_size * 0.85))
+        self.home_button = Button(
+            rect=pygame.Rect(
+                self.screen_rect.right - self.margin - home_size,
+                self.margin,
+                home_size,
+                home_size,
+            ),
+            fill=self.menu_bg,
+        )
+
+        inner_w = self.controls_rect.width - self.menu_pad * 2
+        left = self.controls_rect.left + self.menu_pad
+        top = self.controls_rect.top + self.menu_pad
+        action_h = self.ui_font.get_height() + 16
         self.new_button = Button(
-            rect=pygame.Rect(self.screen_rect.width - button_w - 20, 20, button_w, button_h),
+            rect=pygame.Rect(left, top, inner_w, action_h),
             label="New",
-            fill=(240, 240, 240),
+            fill=(245, 245, 245),
         )
-        self.margin = 40
+        self.undo_button = Button(
+            rect=pygame.Rect(left, self.new_button.rect.bottom + self.menu_gap, inner_w, action_h),
+            label="Undo",
+            fill=(245, 245, 245),
+        )
+
+        tri_gap = max(6, self.menu_gap // 2)
+        tri_w = max(1, (inner_w - tri_gap * 2) // 3)
+        size_top = self.undo_button.rect.bottom + self.menu_gap
+        size_h = max(120, int(self.default_text_size * 4.8))
+        self.size_buttons: Dict[int, Button] = {}
+        for idx, size in enumerate(self.size_values):
+            rect = pygame.Rect(left + idx * (tri_w + tri_gap), size_top, tri_w, size_h)
+            self.size_buttons[size] = Button(rect=rect, fill=(245, 245, 245))
+
+        style_top = size_top + size_h + self.menu_gap
+        self.style_buttons: Dict[str, Button] = {}
+        for idx, (style, label) in enumerate([("plain", "Plain"), ("bold", "Bold"), ("italic", "Italic")]):
+            rect = pygame.Rect(left + idx * (tri_w + tri_gap), style_top, tri_w, action_h)
+            self.style_buttons[style] = Button(rect=rect, label=label, fill=(245, 245, 245))
+
+        recall_top = style_top + action_h + self.menu_gap
+        recall_h = min(inner_w, max(80, self.controls_rect.bottom - self.menu_pad - recall_top))
+        self.recall_button = Button(
+            rect=pygame.Rect(left, recall_top, inner_w, recall_h),
+            label="Recall",
+            fill=self.menu_bg,
+        )
 
         self.recall_open = False
         self.recall_items: List[RecallSession] = []
-        self.recall_strip_rect = pygame.Rect(0, 0, max(220, int(self.screen_rect.width * 0.28)), self.screen_rect.height)
+        self.recall_strip_rect = self.controls_rect.copy()
         self.recall_scroll_y = 0
         self.recall_max_scroll = 0
         self.recall_item_padding_x = 12
         self.recall_item_gap = 12
-        self.recall_item_height = max(120, int(self.screen_rect.height * 0.2))
+        self.recall_item_height = max(120, int(self.controls_rect.height * 0.2))
         self.recall_drag_last_y: Optional[int] = None
         self.recall_pressed_index: Optional[int] = None
         self.recall_drag_distance = 0
+
+        self.text_pad_x = 24
+        self.text_pad_top = 20
+        self.line_gap = 6
+        self.recall_button.image = self._build_recall_button_thumbnail()
+
+    def _get_font(self, size: int, style: str) -> pygame.font.Font:
+        key = (size, style)
+        cached = self.font_cache.get(key)
+        if cached is not None:
+            return cached
+        font = _create_text_font(size, style)
+        self.font_cache[key] = font
+        return font
+
+    def _line_text(self, row: int) -> str:
+        return "".join(g.char for g in self.rich_lines[row])
+
+    def _sync_text_line(self, row: int) -> None:
+        self.text_lines[row] = self._line_text(row)
+
+    def _sync_all_text_lines(self) -> None:
+        self.text_lines = ["".join(g.char for g in line) for line in self.rich_lines]
+        if not self.text_lines:
+            self.text_lines = [""]
+            self.rich_lines = [[]]
 
     def _push_undo(self, op: EditOp) -> None:
         self.undo_stack.append(op)
         if len(self.undo_stack) > 20:
             self.undo_stack.pop(0)
 
-    def _insert_text_at(self, row: int, col: int, text: str) -> None:
-        if text == "\n":
-            line = self.text_lines[row]
-            left = line[:col]
-            right = line[col:]
-            self.text_lines[row] = left
-            self.text_lines.insert(row + 1, right)
-            return
-        line = self.text_lines[row]
-        self.text_lines[row] = line[:col] + text + line[col:]
+    def _insert_newline_at(self, row: int, col: int) -> None:
+        left = self.rich_lines[row][:col]
+        right = self.rich_lines[row][col:]
+        self.rich_lines[row] = left
+        self.rich_lines.insert(row + 1, right)
+        self.text_lines[row] = "".join(g.char for g in left)
+        self.text_lines.insert(row + 1, "".join(g.char for g in right))
 
-    def _remove_text_at(self, row: int, col: int, text: str) -> None:
-        if text == "\n":
-            if row + 1 >= len(self.text_lines):
-                return
-            self.text_lines[row] = self.text_lines[row] + self.text_lines[row + 1]
-            self.text_lines.pop(row + 1)
+    def _remove_newline_at(self, row: int) -> None:
+        if row + 1 >= len(self.rich_lines):
             return
-        line = self.text_lines[row]
-        self.text_lines[row] = line[:col] + line[col + len(text) :]
+        self.rich_lines[row].extend(self.rich_lines[row + 1])
+        self.rich_lines.pop(row + 1)
+        self.text_lines[row] = "".join(g.char for g in self.rich_lines[row])
+        self.text_lines.pop(row + 1)
+
+    def _insert_glyph_at(self, row: int, col: int, glyph: Glyph) -> None:
+        self.rich_lines[row].insert(col, Glyph(char=glyph.char, size=glyph.size, style=glyph.style))
+        self._sync_text_line(row)
+
+    def _remove_glyph_at(self, row: int, col: int) -> Optional[Glyph]:
+        if col < 0 or col >= len(self.rich_lines[row]):
+            return None
+        removed = self.rich_lines[row].pop(col)
+        self._sync_text_line(row)
+        return removed
 
     def _insert_char(self, char: str) -> None:
+        if char == "\n":
+            op = EditOp(
+                kind="insert",
+                row=self.cursor_row,
+                col=self.cursor_col,
+                newline=True,
+                cursor_row=self.cursor_row,
+                cursor_col=self.cursor_col,
+            )
+            self._insert_newline_at(self.cursor_row, self.cursor_col)
+            self.cursor_row += 1
+            self.cursor_col = 0
+            self._push_undo(op)
+            return
+
+        glyph = Glyph(char=char, size=self.current_text_size, style=self.text_style)
         op = EditOp(
             kind="insert",
             row=self.cursor_row,
             col=self.cursor_col,
-            text=char,
+            glyph=Glyph(char=glyph.char, size=glyph.size, style=glyph.style),
             cursor_row=self.cursor_row,
             cursor_col=self.cursor_col,
         )
-        self._insert_text_at(self.cursor_row, self.cursor_col, char)
-        if char == "\n":
-            self.cursor_row += 1
-            self.cursor_col = 0
-        else:
-            self.cursor_col += len(char)
+        self._insert_glyph_at(self.cursor_row, self.cursor_col, glyph)
+        self.cursor_col += 1
         self._push_undo(op)
 
     def _delete_backward(self) -> EditOp | None:
         if self.cursor_row == 0 and self.cursor_col == 0:
             return None
         if self.cursor_col > 0:
-            line = self.text_lines[self.cursor_row]
-            removed = line[self.cursor_col - 1]
+            removed = self._remove_glyph_at(self.cursor_row, self.cursor_col - 1)
+            if removed is None:
+                return None
             op = EditOp(
                 kind="delete",
                 row=self.cursor_row,
                 col=self.cursor_col - 1,
-                text=removed,
+                glyph=Glyph(char=removed.char, size=removed.size, style=removed.style),
                 cursor_row=self.cursor_row,
                 cursor_col=self.cursor_col,
             )
-            self.text_lines[self.cursor_row] = line[: self.cursor_col - 1] + line[self.cursor_col :]
             self.cursor_col -= 1
             return op
-        prev_line = self.text_lines[self.cursor_row - 1]
+
+        prev_len = len(self.rich_lines[self.cursor_row - 1])
         op = EditOp(
             kind="delete",
             row=self.cursor_row - 1,
-            col=len(prev_line),
-            text="\n",
+            col=prev_len,
+            newline=True,
             cursor_row=self.cursor_row,
             cursor_col=self.cursor_col,
         )
-        self.text_lines[self.cursor_row - 1] = prev_line + self.text_lines[self.cursor_row]
-        self.text_lines.pop(self.cursor_row)
+        self._remove_newline_at(self.cursor_row - 1)
         self.cursor_row -= 1
-        self.cursor_col = len(prev_line)
+        self.cursor_col = prev_len
         return op
 
     def _undo(self) -> None:
@@ -192,17 +360,22 @@ class TypingApp:
             return
         op = self.undo_stack.pop()
         if op.kind == "insert":
-            self._remove_text_at(op.row, op.col, op.text)
+            if op.newline:
+                self._remove_newline_at(op.row)
+            else:
+                self._remove_glyph_at(op.row, op.col)
         else:
-            self._insert_text_at(op.row, op.col, op.text)
+            if op.newline:
+                self._insert_newline_at(op.row, op.col)
+            elif op.glyph is not None:
+                self._insert_glyph_at(op.row, op.col, op.glyph)
         self.cursor_row = op.cursor_row
         self.cursor_col = op.cursor_col
 
     def _archive_session(self) -> None:
-        text = self._current_text()
         record = {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
-            "text": text,
+            "rich_lines": _serialize_rich_lines(self.rich_lines),
         }
         with self.sessions_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -211,6 +384,7 @@ class TypingApp:
         return "\n".join(self.text_lines).rstrip()
 
     def _clear_text(self) -> None:
+        self.rich_lines = [[]]
         self.text_lines = [""]
         self.undo_stack = []
         self.cursor_row = 0
@@ -222,14 +396,14 @@ class TypingApp:
             return
         if self.cursor_row > 0:
             self.cursor_row -= 1
-            self.cursor_col = len(self.text_lines[self.cursor_row])
+            self.cursor_col = len(self.rich_lines[self.cursor_row])
 
     def _move_cursor_right(self) -> None:
-        line = self.text_lines[self.cursor_row]
+        line = self.rich_lines[self.cursor_row]
         if self.cursor_col < len(line):
             self.cursor_col += 1
             return
-        if self.cursor_row < len(self.text_lines) - 1:
+        if self.cursor_row < len(self.rich_lines) - 1:
             self.cursor_row += 1
             self.cursor_col = 0
 
@@ -237,54 +411,91 @@ class TypingApp:
         if self.cursor_row == 0:
             return
         self.cursor_row -= 1
-        self.cursor_col = min(self.cursor_col, len(self.text_lines[self.cursor_row]))
+        self.cursor_col = min(self.cursor_col, len(self.rich_lines[self.cursor_row]))
 
     def _move_cursor_down(self) -> None:
-        if self.cursor_row >= len(self.text_lines) - 1:
+        if self.cursor_row >= len(self.rich_lines) - 1:
             return
         self.cursor_row += 1
-        self.cursor_col = min(self.cursor_col, len(self.text_lines[self.cursor_row]))
+        self.cursor_col = min(self.cursor_col, len(self.rich_lines[self.cursor_row]))
 
     def _move_cursor_home(self) -> None:
         self.cursor_col = 0
 
     def _move_cursor_end(self) -> None:
-        self.cursor_col = len(self.text_lines[self.cursor_row])
+        self.cursor_col = len(self.rich_lines[self.cursor_row])
 
     def _move_cursor_page_up(self, lines: int) -> None:
         if self.cursor_row == 0:
             return
         self.cursor_row = max(0, self.cursor_row - lines)
-        self.cursor_col = min(self.cursor_col, len(self.text_lines[self.cursor_row]))
+        self.cursor_col = min(self.cursor_col, len(self.rich_lines[self.cursor_row]))
 
     def _move_cursor_page_down(self, lines: int) -> None:
-        if self.cursor_row >= len(self.text_lines) - 1:
+        if self.cursor_row >= len(self.rich_lines) - 1:
             return
-        self.cursor_row = min(len(self.text_lines) - 1, self.cursor_row + lines)
-        self.cursor_col = min(self.cursor_col, len(self.text_lines[self.cursor_row]))
+        self.cursor_row = min(len(self.rich_lines) - 1, self.cursor_row + lines)
+        self.cursor_col = min(self.cursor_col, len(self.rich_lines[self.cursor_row]))
 
-    def _text_to_lines(self, text: str) -> List[str]:
-        lines = text.split("\n")
-        return lines if lines else [""]
+    def _build_recall_button_thumbnail(self) -> pygame.Surface:
+        size = self.recall_button.rect.size
+        thumb = pygame.Surface((max(1, size[0] - 6), max(1, size[1] - 6)))
+        thumb.fill((248, 248, 248))
+        pygame.draw.rect(thumb, (120, 120, 120), thumb.get_rect(), width=2)
+        preview_font = pygame.font.SysFont("sans", max(14, self.ui_font.get_height() - 2))
+        message = "I'm Rosie's KidBox. Touch here to see what you've written."
+        max_width = thumb.get_width() - 16
+        words = message.split(" ")
+        lines: List[str] = []
+        current = ""
+        for word in words:
+            candidate = word if not current else f"{current} {word}"
+            if preview_font.size(candidate)[0] <= max_width:
+                current = candidate
+            else:
+                if current:
+                    lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        y = 10
+        for line in lines:
+            if y + preview_font.get_height() > thumb.get_height() - 8:
+                break
+            surf = preview_font.render(line, True, (40, 40, 40))
+            thumb.blit(surf, (8, y))
+            y += preview_font.get_height() + 4
+        return thumb
+
+    def _line_step(self) -> int:
+        return self.current_text_size + self.line_gap
+
+    def _lines_per_page(self) -> int:
+        return max(1, (self.text_rect.height - (self.text_pad_top + 20)) // self._line_step())
+
+    def _set_text_font(self, *, size: Optional[int] = None, style: Optional[str] = None) -> None:
+        if size is not None:
+            self.current_text_size = size
+        if style is not None:
+            self.text_style = style
+
+    def _line_font_height(self, row: int) -> int:
+        line = self.rich_lines[row]
+        if not line:
+            return self._get_font(self.current_text_size, self.text_style).get_height()
+        return max(self._get_font(g.size, g.style).get_height() for g in line)
 
     def _open_recall(self) -> None:
-        current = self._current_text()
+        self.recall_strip_rect = self.controls_rect.copy()
         self.recall_items = [
             RecallSession(
                 label="Current",
-                text=current,
-                preview=_preview_text(current),
+                preview=_preview_text(self._current_text()),
+                rich_lines=_clone_rich_lines(self.rich_lines),
                 is_current=True,
             )
         ]
-        for label, text in _load_recent_sessions(self.sessions_path):
-            self.recall_items.append(
-                RecallSession(
-                    label=label,
-                    text=text,
-                    preview=_preview_text(text),
-                )
-            )
+        self.recall_items.extend(_load_recent_sessions(self.sessions_path))
         self.recall_scroll_y = 0
         self.recall_drag_last_y = None
         self.recall_pressed_index = None
@@ -319,10 +530,11 @@ class TypingApp:
         if item.is_current:
             self.recall_open = False
             return
-        self.text_lines = self._text_to_lines(item.text)
+        self.rich_lines = _clone_rich_lines(item.rich_lines)
+        self._sync_all_text_lines()
         self.undo_stack = []
-        self.cursor_row = max(0, len(self.text_lines) - 1)
-        self.cursor_col = len(self.text_lines[self.cursor_row]) if self.text_lines else 0
+        self.cursor_row = max(0, len(self.rich_lines) - 1)
+        self.cursor_col = len(self.rich_lines[self.cursor_row]) if self.rich_lines else 0
         self.recall_open = False
 
     def _wrap_preview_lines(self, text: str, max_width: int, max_lines: int) -> List[str]:
@@ -335,7 +547,7 @@ class TypingApp:
         current = ""
         for word in words:
             candidate = word if not current else f"{current} {word}"
-            if self.font.size(candidate)[0] <= max_width:
+            if self.ui_font.size(candidate)[0] <= max_width:
                 current = candidate
                 continue
             if current:
@@ -353,15 +565,18 @@ class TypingApp:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             self.recall_open = False
             return
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if not self.recall_strip_rect.collidepoint(event.pos):
+        if is_primary_pointer_event(event, is_down=True):
+            pos = pointer_event_pos(event, self.screen_rect)
+            if pos is None:
+                return
+            if not self.recall_strip_rect.collidepoint(pos):
                 self.recall_open = False
                 self.recall_drag_last_y = None
                 self.recall_pressed_index = None
                 self.recall_drag_distance = 0
                 return
-            self.recall_drag_last_y = event.pos[1]
-            self.recall_pressed_index = self._recall_index_at_pos(event.pos)
+            self.recall_drag_last_y = pos[1]
+            self.recall_pressed_index = self._recall_index_at_pos(pos)
             self.recall_drag_distance = 0
             return
         if event.type == pygame.MOUSEMOTION and self.recall_drag_last_y is not None:
@@ -370,11 +585,14 @@ class TypingApp:
             self.recall_drag_distance += abs(dy)
             self.recall_drag_last_y = event.pos[1]
             return
-        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+        if is_primary_pointer_event(event, is_down=False):
+            pos = pointer_event_pos(event, self.screen_rect)
+            if pos is None:
+                return
             if (
                 self.recall_pressed_index is not None
                 and self.recall_drag_distance < 10
-                and self._recall_index_at_pos(event.pos) == self.recall_pressed_index
+                and self._recall_index_at_pos(pos) == self.recall_pressed_index
             ):
                 self._apply_recall(self.recall_pressed_index)
             self.recall_drag_last_y = None
@@ -405,40 +623,75 @@ class TypingApp:
             border = (200, 60, 60) if item.is_current else (120, 120, 120)
             pygame.draw.rect(self.screen, border, rect, width=3 if item.is_current else 2)
 
-            label_surface = self.font.render(item.label, True, (30, 30, 30))
+            label_surface = self.ui_font.render(item.label, True, (30, 30, 30))
             self.screen.blit(label_surface, (rect.left + preview_x_pad, rect.top + preview_y_pad))
 
-            preview_top = rect.top + preview_y_pad + self.font.get_height() + 6
+            preview_top = rect.top + preview_y_pad + self.ui_font.get_height() + 6
             max_width = rect.width - preview_x_pad * 2
             available_height = rect.bottom - preview_top - preview_y_pad
-            line_step = self.font.get_height() + 4
+            line_step = self.ui_font.get_height() + 4
             max_lines = max(1, available_height // line_step)
             lines = self._wrap_preview_lines(item.preview, max_width, max_lines)
             for line_idx, line in enumerate(lines):
                 y = preview_top + line_idx * line_step
-                if y + self.font.get_height() > rect.bottom - preview_y_pad:
+                if y + self.ui_font.get_height() > rect.bottom - preview_y_pad:
                     break
-                line_surface = self.font.render(line, True, (40, 40, 40))
+                line_surface = self.ui_font.render(line, True, (40, 40, 40))
                 self.screen.blit(line_surface, (rect.left + preview_x_pad, y))
 
     def _render(self) -> None:
         self.screen.fill((248, 248, 248))
 
+        pygame.draw.rect(self.screen, self.menu_bg, self.controls_rect)
+        pygame.draw.rect(self.screen, (255, 255, 255), self.text_rect)
+        pygame.draw.rect(self.screen, (200, 200, 200), self.text_rect, width=2)
+
         draw_home_button(self.screen, self.home_button.rect)
-        self.recall_button.draw(self.screen, self.font)
-        self.undo_button.draw(self.screen, self.font)
-        self.new_button.draw(self.screen, self.font)
+        self.new_button.draw(self.screen, self.ui_font)
+        self.undo_button.draw(self.screen, self.ui_font)
+        for size, button in self.size_buttons.items():
+            button.draw(self.screen)
+            sample = self.size_sample_fonts[size].render("A", True, (25, 25, 25))
+            sample_rect = sample.get_rect(center=button.rect.center)
+            self.screen.blit(sample, sample_rect)
+            if size == self.current_text_size:
+                pygame.draw.rect(self.screen, (200, 60, 60), button.rect, width=3, border_radius=12)
+        for style, button in self.style_buttons.items():
+            button.draw(self.screen, self.ui_font)
+            if style == self.text_style:
+                pygame.draw.rect(self.screen, (200, 60, 60), button.rect, width=3, border_radius=12)
+        if self.recall_button.image is None:
+            self.recall_button.draw(self.screen, self.ui_font)
+        else:
+            self.recall_button.draw(self.screen)
 
-        y = self.margin + 60
-        for line in self.text_lines:
-            text_surface = self.font.render(line, True, (20, 20, 20))
-            self.screen.blit(text_surface, (self.margin, y))
-            y += self.font.get_height() + 6
+        text_x = self.text_rect.left + self.text_pad_x
+        y = self.text_rect.top + self.text_pad_top
+        cursor_x = text_x
+        cursor_y = y
+        cursor_h = self._line_font_height(self.cursor_row)
 
-        cursor_line = self.text_lines[self.cursor_row]
-        cursor_x = self.margin + self.font.size(cursor_line[: self.cursor_col])[0]
-        cursor_y = self.margin + 60 + self.cursor_row * (self.font.get_height() + 6)
-        pygame.draw.rect(self.screen, (30, 30, 30), (cursor_x, cursor_y, 6, self.font.get_height()))
+        for row_idx, line in enumerate(self.rich_lines):
+            x = text_x
+            row_h = self._line_font_height(row_idx)
+            if row_idx == self.cursor_row:
+                cursor_x = text_x
+                cursor_y = y
+                cursor_h = row_h
+            for col_idx, glyph in enumerate(line):
+                font = self._get_font(glyph.size, glyph.style)
+                surf = font.render(glyph.char, True, (20, 20, 20))
+                glyph_y = y + (row_h - font.get_height())
+                self.screen.blit(surf, (x, glyph_y))
+                glyph_w = font.size(glyph.char)[0]
+                if row_idx == self.cursor_row and col_idx < self.cursor_col:
+                    cursor_x = x + glyph_w
+                x += glyph_w
+            if row_idx == self.cursor_row and self.cursor_col >= len(line):
+                cursor_x = x
+            y += row_h + self.line_gap
+
+        pygame.draw.rect(self.screen, (30, 30, 30), (cursor_x, cursor_y, 6, cursor_h))
 
         if self.recall_open:
             self._draw_recall_overlay()
@@ -447,7 +700,6 @@ class TypingApp:
 
     def run(self) -> None:
         running = True
-        lines_per_page = max(1, (self.screen_rect.height - (self.margin + 80)) // (self.font.get_height() + 6))
         self._render()
         while running:
             for event in pygame.event.get():
@@ -490,9 +742,9 @@ class TypingApp:
                         elif event.key == pygame.K_END:
                             self._move_cursor_end()
                         elif event.key == pygame.K_PAGEUP:
-                            self._move_cursor_page_up(lines_per_page)
+                            self._move_cursor_page_up(self._lines_per_page())
                         elif event.key == pygame.K_PAGEDOWN:
-                            self._move_cursor_page_down(lines_per_page)
+                            self._move_cursor_page_down(self._lines_per_page())
                     elif event.key in {pygame.K_LCTRL, pygame.K_RCTRL, pygame.K_LALT, pygame.K_RALT}:
                         continue
                     elif event.mod & (pygame.KMOD_CTRL | pygame.KMOD_ALT | pygame.KMOD_META | pygame.KMOD_GUI):
@@ -500,16 +752,35 @@ class TypingApp:
                     else:
                         if event.unicode and event.unicode.isprintable():
                             self._insert_char(event.unicode)
-                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    if self.home_button.hit(event.pos):
+                elif is_primary_pointer_event(event, is_down=True):
+                    pos = pointer_event_pos(event, self.screen_rect)
+                    if pos is None:
+                        continue
+                    if self.home_button.hit(pos):
                         running = False
-                    elif self.recall_button.hit(event.pos):
-                        self._open_recall()
-                    elif self.undo_button.hit(event.pos):
-                        self._undo()
-                    elif self.new_button.hit(event.pos):
+                    elif self.new_button.hit(pos):
                         self._archive_session()
                         self._clear_text()
+                    elif self.undo_button.hit(pos):
+                        self._undo()
+                    elif self.recall_button.hit(pos):
+                        self._open_recall()
+                    else:
+                        handled = False
+                        for size, button in self.size_buttons.items():
+                            if button.hit(pos):
+                                self._set_text_font(size=size)
+                                handled = True
+                                break
+                        if handled:
+                            continue
+                        for style, button in self.style_buttons.items():
+                            if button.hit(pos):
+                                self._set_text_font(style=style)
+                                handled = True
+                                break
+                        if handled:
+                            continue
 
             self._render()
             self.clock.tick(60)

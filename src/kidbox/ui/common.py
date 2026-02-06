@@ -9,10 +9,14 @@ import pygame
 
 
 Color = Tuple[int, int, int]
+Point = Tuple[int, int]
 
 _HOME_ICON_ORIG: Optional[pygame.Surface] = None
 _HOME_ICON: Optional[pygame.Surface] = None
 _HOME_ICON_SIZE: Optional[Tuple[int, int]] = None
+FINGERDOWN = getattr(pygame, "FINGERDOWN", None)
+FINGERUP = getattr(pygame, "FINGERUP", None)
+FINGER_EVENTS = {event for event in (FINGERDOWN, FINGERUP) if event is not None}
 
 
 @dataclass
@@ -139,6 +143,28 @@ def is_escape_chord(event: pygame.event.Event) -> bool:
         | getattr(pygame, "KMOD_ALTGR", 0)
     )
     return has_ctrl and has_alt and (mods & disallowed) == 0
+
+
+def is_primary_pointer_event(event: pygame.event.Event, *, is_down: bool) -> bool:
+    expected_type = pygame.MOUSEBUTTONDOWN if is_down else pygame.MOUSEBUTTONUP
+    if event.type == expected_type:
+        button = getattr(event, "button", 1)
+        if button in {0, 1}:
+            return True
+        return bool(getattr(event, "touch", False))
+    finger_type = FINGERDOWN if is_down else FINGERUP
+    return finger_type is not None and event.type == finger_type
+
+
+def pointer_event_pos(event: pygame.event.Event, screen_rect: pygame.Rect) -> Optional[Point]:
+    if hasattr(event, "pos"):
+        return event.pos
+    if event.type in FINGER_EVENTS:
+        return (
+            int(event.x * screen_rect.width),
+            int(event.y * screen_rect.height),
+        )
+    return None
 
 
 def ignore_system_shortcut(event: pygame.event.Event) -> bool:

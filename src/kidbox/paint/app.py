@@ -12,30 +12,21 @@ import pygame
 
 from kidbox.config import load_config
 from kidbox.paths import ensure_directories, get_data_root
-from kidbox.ui.common import Button, create_fullscreen_window, draw_home_button
+from kidbox.ui.common import (
+    Button,
+    create_fullscreen_window,
+    draw_home_button,
+    is_primary_pointer_event,
+    pointer_event_pos,
+)
 
 
 Color = Tuple[int, int, int]
 Point = Tuple[int, int]
 
-FINGERDOWN = getattr(pygame, "FINGERDOWN", None)
 FINGERMOTION = getattr(pygame, "FINGERMOTION", None)
-FINGERUP = getattr(pygame, "FINGERUP", None)
-FINGER_EVENTS = {event for event in (FINGERDOWN, FINGERMOTION, FINGERUP) if event is not None}
 
 _ICON_CACHE: Dict[Tuple[str, Tuple[int, int], bool], pygame.Surface] = {}
-
-
-def _is_primary_pointer_event(event: pygame.event.Event, *, is_down: bool) -> bool:
-    expected_type = pygame.MOUSEBUTTONDOWN if is_down else pygame.MOUSEBUTTONUP
-    if event.type == expected_type:
-        # Some touch stacks can emit emulated mouse events with button 0.
-        button = getattr(event, "button", 1)
-        if button in {0, 1}:
-            return True
-        return bool(getattr(event, "touch", False))
-    finger_type = FINGERDOWN if is_down else FINGERUP
-    return finger_type is not None and event.type == finger_type
 
 
 def _fountain_width_for_direction(
@@ -430,14 +421,7 @@ class PaintApp:
         self._update_thumbnail_button()
 
     def _event_pos(self, event: pygame.event.Event) -> Optional[Point]:
-        if hasattr(event, "pos"):
-            return event.pos
-        if event.type in FINGER_EVENTS:
-            return (
-                int(event.x * self.screen_rect.width),
-                int(event.y * self.screen_rect.height),
-            )
-        return None
+        return pointer_event_pos(event, self.screen_rect)
 
     def _push_undo(self) -> None:
         self.undo_stack.append(self.canvas_surface.copy())
@@ -635,7 +619,7 @@ class PaintApp:
         return None
 
     def _handle_recall_event(self, event: pygame.event.Event) -> None:
-        if _is_primary_pointer_event(event, is_down=True):
+        if is_primary_pointer_event(event, is_down=True):
             pos = self._event_pos(event)
             if pos is None:
                 return
@@ -650,7 +634,7 @@ class PaintApp:
             self.recall_strip_drag_last_y = pos[1]
             self.recall_pressed_index = self._recall_index_at_pos(pos)
             self.recall_drag_distance = 0
-        if _is_primary_pointer_event(event, is_down=False):
+        if is_primary_pointer_event(event, is_down=False):
             self.pointer_down = False
             pos = self._event_pos(event)
             if (
@@ -746,7 +730,7 @@ class PaintApp:
                     continue
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                     running = False
-                elif _is_primary_pointer_event(event, is_down=True):
+                elif is_primary_pointer_event(event, is_down=True):
                     pos = self._event_pos(event)
                     if pos is None:
                         continue
@@ -763,7 +747,7 @@ class PaintApp:
                     if pos is None:
                         continue
                     self._handle_pointer_move(pos)
-                elif _is_primary_pointer_event(event, is_down=False):
+                elif is_primary_pointer_event(event, is_down=False):
                     self.pointer_down = False
                     self._handle_pointer_up()
 

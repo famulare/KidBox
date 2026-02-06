@@ -15,8 +15,10 @@ from kidbox.ui.common import (
     create_fullscreen_window,
     draw_placeholder_icon,
     ignore_system_shortcut,
+    is_primary_pointer_event,
     is_escape_chord,
     load_image,
+    pointer_event_pos,
     set_env_for_child,
 )
 
@@ -136,9 +138,12 @@ def main() -> None:
                 sys.exit(0)
             elif ignore_system_shortcut(event):
                 continue
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            elif is_primary_pointer_event(event, is_down=True):
+                pos = pointer_event_pos(event, screen_rect)
+                if pos is None:
+                    continue
                 for app, button in zip(apps, buttons):
-                    if button.hit(event.pos):
+                    if button.hit(pos):
                         _launch_app(app)
                         screen, screen_rect = _restore_launcher_window()
                         buttons = _build_buttons(apps, screen_rect)
