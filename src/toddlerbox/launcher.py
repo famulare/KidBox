@@ -10,11 +10,11 @@ from typing import Any, Callable, Dict, List, Optional
 
 import pygame
 
-from kidbox.config import load_config
-from kidbox.paint.app import run_embedded as run_paint_embedded
-from kidbox.photos.app import run_embedded as run_photos_embedded
-from kidbox.typing.app import run_embedded as run_typing_embedded
-from kidbox.ui.common import (
+from toddlerbox.config import load_config
+from toddlerbox.paint.app import run_embedded as run_paint_embedded
+from toddlerbox.photos.app import run_embedded as run_photos_embedded
+from toddlerbox.typing.app import run_embedded as run_typing_embedded
+from toddlerbox.ui.common import (
     Button,
     create_fullscreen_window,
     draw_placeholder_icon,
@@ -35,9 +35,9 @@ class LauncherApp:
 
 
 _EMBEDDED_RUNNERS: Dict[str, Callable[[pygame.Surface, pygame.Rect, pygame.time.Clock], None]] = {
-    "kidbox.paint": run_paint_embedded,
-    "kidbox.photos": run_photos_embedded,
-    "kidbox.typing": run_typing_embedded,
+    "toddlerbox.paint": run_paint_embedded,
+    "toddlerbox.photos": run_photos_embedded,
+    "toddlerbox.typing": run_typing_embedded,
 }
 
 

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from kidbox.photos.app import _thumb_name, _is_image
+from toddlerbox.photos.app import _thumb_name, _is_image
 
 
 def test_thumb_name():

@@ -9,9 +9,9 @@ from typing import Deque, Dict, List, Optional, Tuple
 
 import pygame
 
-from kidbox.config import load_config
-from kidbox.paths import ensure_directories, get_data_root
-from kidbox.ui.common import (
+from toddlerbox.config import load_config
+from toddlerbox.paths import ensure_directories, get_data_root
+from toddlerbox.ui.common import (
     Button,
     create_fullscreen_window,
     draw_home_button,
@@ -453,7 +453,7 @@ class TypingApp:
         thumb.fill((248, 248, 248))
         pygame.draw.rect(thumb, (120, 120, 120), thumb.get_rect(), width=2)
         preview_font = pygame.font.SysFont("sans", max(14, self.ui_font.get_height() - 2))
-        message = "I'm Rosie's KidBox. Touch here to see what you've written."
+        message = "I'm Rosie's ToddlerBox. Touch here to see what you've written."
         max_width = thumb.get_width() - 16
         words = message.split(" ")
         lines: List[str] = []

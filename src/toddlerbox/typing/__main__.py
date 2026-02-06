@@ -1,4 +1,4 @@
-from kidbox.typing.app import main
+from toddlerbox.typing.app import main
 
 if __name__ == "__main__":
     main()

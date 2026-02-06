@@ -1,9 +1,9 @@
 import json
 
-from kidbox.typing.app import Glyph
-from kidbox.typing.app import TypingApp
-from kidbox.typing.app import _load_recent_sessions
-from kidbox.typing.app import _preview_text
+from toddlerbox.typing.app import Glyph
+from toddlerbox.typing.app import TypingApp
+from toddlerbox.typing.app import _load_recent_sessions
+from toddlerbox.typing.app import _preview_text
 
 
 def test_delete_line_join_undo_restores_newline():

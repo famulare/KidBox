@@ -6,9 +6,9 @@ from typing import List, Optional, Tuple
 
 import pygame
 
-from kidbox.config import load_config
-from kidbox.paths import ensure_directories, get_data_root
-from kidbox.ui.common import (
+from toddlerbox.config import load_config
+from toddlerbox.paths import ensure_directories, get_data_root
+from toddlerbox.ui.common import (
     Button,
     create_fullscreen_window,
     draw_home_button,

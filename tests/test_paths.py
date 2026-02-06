@@ -1,4 +1,4 @@
-from kidbox.paths import ensure_directories
+from toddlerbox.paths import ensure_directories
 
 
 def test_ensure_directories(tmp_path):

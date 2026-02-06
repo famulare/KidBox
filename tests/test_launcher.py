@@ -1,17 +1,17 @@
-from kidbox.launcher import _embedded_runner_for_command, _resolve_command, _restore_launcher_window
+from toddlerbox.launcher import _embedded_runner_for_command, _resolve_command, _restore_launcher_window
 
 
 def test_resolve_command_uses_active_interpreter_for_python(monkeypatch):
-    monkeypatch.setattr("kidbox.launcher.sys.executable", "/opt/kidbox/.venv/bin/python3.11")
-    command = _resolve_command(["python", "-m", "kidbox.paint"])
-    assert command == ["/opt/kidbox/.venv/bin/python3.11", "-m", "kidbox.paint"]
+    monkeypatch.setattr("toddlerbox.launcher.sys.executable", "/opt/toddlerbox/.venv/bin/python3.11")
+    command = _resolve_command(["python", "-m", "toddlerbox.paint"])
+    assert command == ["/opt/toddlerbox/.venv/bin/python3.11", "-m", "toddlerbox.paint"]
 
 
 def test_resolve_command_falls_back_to_python3_when_executable_missing(monkeypatch):
-    monkeypatch.setattr("kidbox.launcher.sys.executable", "")
-    monkeypatch.setattr("kidbox.launcher.shutil.which", lambda name: "/usr/bin/python3" if name == "python3" else None)
-    command = _resolve_command(["python3", "-m", "kidbox.photos"])
-    assert command == ["/usr/bin/python3", "-m", "kidbox.photos"]
+    monkeypatch.setattr("toddlerbox.launcher.sys.executable", "")
+    monkeypatch.setattr("toddlerbox.launcher.shutil.which", lambda name: "/usr/bin/python3" if name == "python3" else None)
+    command = _resolve_command(["python3", "-m", "toddlerbox.photos"])
+    assert command == ["/usr/bin/python3", "-m", "toddlerbox.photos"]
 
 
 def test_resolve_command_keeps_non_python_commands():
@@ -25,7 +25,7 @@ def test_restore_launcher_window_reuses_existing_surface(monkeypatch):
             return "fake-rect"
 
     existing = FakeSurface()
-    monkeypatch.setattr("kidbox.launcher.pygame.display.get_surface", lambda: existing)
+    monkeypatch.setattr("toddlerbox.launcher.pygame.display.get_surface", lambda: existing)
 
     surface, rect = _restore_launcher_window()
     assert surface is existing
@@ -33,8 +33,8 @@ def test_restore_launcher_window_reuses_existing_surface(monkeypatch):
 
 
 def test_restore_launcher_window_recreates_when_surface_missing(monkeypatch):
-    monkeypatch.setattr("kidbox.launcher.pygame.display.get_surface", lambda: None)
-    monkeypatch.setattr("kidbox.launcher.create_fullscreen_window", lambda: ("new-surface", "new-rect"))
+    monkeypatch.setattr("toddlerbox.launcher.pygame.display.get_surface", lambda: None)
+    monkeypatch.setattr("toddlerbox.launcher.create_fullscreen_window", lambda: ("new-surface", "new-rect"))
 
     surface, rect = _restore_launcher_window()
     assert surface == "new-surface"
@@ -42,7 +42,7 @@ def test_restore_launcher_window_recreates_when_surface_missing(monkeypatch):
 
 
 def test_embedded_runner_for_command_matches_builtin_module():
-    runner = _embedded_runner_for_command(["python", "-m", "kidbox.paint"])
+    runner = _embedded_runner_for_command(["python", "-m", "toddlerbox.paint"])
     assert runner is not None
 
 

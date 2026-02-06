@@ -4,13 +4,13 @@ launcher:
   apps:
     - name: Paint
       icon_path: assets/icons/paint/paint_512.png
-      command: "python -m kidbox.paint"
+      command: "python -m toddlerbox.paint"
     - name: Photos
       icon_path: assets/icons/photos/photos_512.png
-      command: "python -m kidbox.photos"
+      command: "python -m toddlerbox.photos"
     - name: Typing
       icon_path: assets/icons/typing/typing_512.png
-      command: "python -m kidbox.typing"
+      command: "python -m toddlerbox.typing"
 
 paint:
   autosave_seconds: 10

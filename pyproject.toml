@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "KidBox"
+name = "ToddlerBox"
 version = "0.1.0"
-description = "KidBox launcher and apps"
+description = "ToddlerBox launcher and apps"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

@@ -13,17 +13,17 @@ DEFAULT_CONFIG: Dict[str, Any] = {
             {
                 "name": "Paint",
                 "icon_path": "assets/icons/paint.png",
-                "command": "python -m kidbox.paint",
+                "command": "python -m toddlerbox.paint",
             },
             {
                 "name": "Photos",
                 "icon_path": "assets/icons/photos.png",
-                "command": "python -m kidbox.photos",
+                "command": "python -m toddlerbox.photos",
             },
             {
                 "name": "Typing",
                 "icon_path": "assets/icons/typing.png",
-                "command": "python -m kidbox.typing",
+                "command": "python -m toddlerbox.typing",
             },
         ]
     },
@@ -72,7 +72,7 @@ def _candidate_config_paths() -> list[Path]:
         paths.append(Path(env_path))
     paths.extend([
         Path("config.yaml"),
-        Path("/opt/kidbox/config.yaml"),
+        Path("/opt/toddlerbox/config.yaml"),
     ])
     return paths
 

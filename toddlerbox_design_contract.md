@@ -1,4 +1,4 @@
-# KidBox — v1 As-Built Contract (Current Implementation)
+# ToddlerBox — v1 As-Built Contract (Current Implementation)
 
 This document is the source of truth for the code currently shipped in `main`.
 It reflects implementation as it exists today, not aspirational scope.
@@ -26,7 +26,7 @@ It reflects implementation as it exists today, not aspirational scope.
 
 ### 1.2 App handoff model
 
-- Built-in apps (`kidbox.paint`, `kidbox.photos`, `kidbox.typing`) run embedded in-process.
+- Built-in apps (`toddlerbox.paint`, `toddlerbox.photos`, `toddlerbox.typing`) run embedded in-process.
 - Launcher keeps a single pygame window and switches scenes to reduce transition flicker.
 - Non-built-in commands in config are launched via subprocess fallback.
 - Subprocess fallback suppresses child stdout/stderr.

@@ -20,7 +20,7 @@ uv pip install -e ".[dev]"
 APP="${1:-launcher}"
 case "$APP" in
   launcher|paint|photos|typing)
-    uv run python -m "kidbox.${APP}"
+    uv run python -m "toddlerbox.${APP}"
     ;;
   tests|test)
     uv run pytest

@@ -1,4 +1,4 @@
-from kidbox.paint.app import main
+from toddlerbox.paint.app import main
 
 if __name__ == "__main__":
     main()

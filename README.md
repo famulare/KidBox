@@ -1,6 +1,6 @@
-# KidBox
+# ToddlerBox
 
-**KidBox** is a minimalist, offline-first Linux "kid mode" designed for very young children.
+**ToddlerBox** is a minimalist, offline-first Linux "kid mode" designed for very young children.
 By default it boots into a fullscreen launcher with three large buttons:
 
 - **Paint**
@@ -41,7 +41,7 @@ It is a small, comprehensible appliance built on top of Ubuntu.
 
 ```
 ┌────────────────────────────┐
-│           KidBox           │
+│           ToddlerBox           │
 │  (Fullscreen Launcher)     │
 │                            │
 │  [ Paint ] [ Photos ]      │
@@ -146,7 +146,7 @@ All child-generated data lives under a single directory, configured by `data_roo
 
 ## Configuration
 
-Runtime configuration is read from `config.yaml` (repo root for dev) or `/opt/kidbox/config.yaml` (deployment). Key settings:
+Runtime configuration is read from `config.yaml` (repo root for dev) or `/opt/toddlerbox/config.yaml` (deployment). Key settings:
 
 - `data_root` (default dev config: `./data`)
 - `launcher.apps` (icon paths + commands)
@@ -206,28 +206,28 @@ UV_CACHE_DIR=/tmp/uv-cache uv pip install -e .[dev]
 From the repo root:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python -m kidbox.launcher
-UV_CACHE_DIR=/tmp/uv-cache uv run python -m kidbox.paint
-UV_CACHE_DIR=/tmp/uv-cache uv run python -m kidbox.photos
-UV_CACHE_DIR=/tmp/uv-cache uv run python -m kidbox.typing
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.launcher
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.paint
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.photos
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.typing
 ```
 
 ---
 
 ## GNOME Launch Setup (Deployment)
 
-KidBox is launched by GNOME autostart after user login.
+ToddlerBox is launched by GNOME autostart after user login.
 
 ### 1) Enable autologin in GNOME
 
-KidBox assumes the target user logs into a GNOME session automatically.
+ToddlerBox assumes the target user logs into a GNOME session automatically.
 
 ### 2) Add an autostart desktop entry
 
 Create:
 
 ```text
-~/.config/autostart/kidbox-launcher.desktop
+~/.config/autostart/toddlerbox-launcher.desktop
 ```
 
 Example:
@@ -235,8 +235,8 @@ Example:
 ```ini
 [Desktop Entry]
 Type=Application
-Name=KidBox Launcher
-Exec=/home/<user>/.local/bin/start-kidbox-launcher.sh
+Name=ToddlerBox Launcher
+Exec=/home/<user>/.local/bin/start-toddlerbox-launcher.sh
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=1
 Terminal=false
@@ -247,22 +247,22 @@ Terminal=false
 Create:
 
 ```text
-~/.local/bin/start-kidbox-launcher.sh
+~/.local/bin/start-toddlerbox-launcher.sh
 ```
 
 Example:
 
 ```bash
 #!/usr/bin/env bash
-cd /opt/kidbox
+cd /opt/toddlerbox
 export UV_CACHE_DIR=/tmp/uv-cache
-exec /opt/kidbox/.venv/bin/python -m kidbox.launcher
+exec /opt/toddlerbox/.venv/bin/python -m toddlerbox.launcher
 ```
 
 Make it executable:
 
 ```bash
-chmod +x ~/.local/bin/start-kidbox-launcher.sh
+chmod +x ~/.local/bin/start-toddlerbox-launcher.sh
 ```
 
 ### 4) Delay behavior
@@ -270,7 +270,7 @@ chmod +x ~/.local/bin/start-kidbox-launcher.sh
 There are two independent launch delays:
 
 - `X-GNOME-Autostart-Delay` in the `.desktop` file.
-- Any `sleep` in `start-kidbox-launcher.sh`.
+- Any `sleep` in `start-toddlerbox-launcher.sh`.
 
 Use one delay mechanism or keep both values low to avoid a long blank/login-to-launch gap.
 

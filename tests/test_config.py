@@ -1,4 +1,4 @@
-from kidbox.config import load_config
+from toddlerbox.config import load_config
 
 
 def test_load_config_overrides(tmp_path, monkeypatch):

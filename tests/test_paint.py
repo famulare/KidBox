@@ -2,11 +2,11 @@ from pathlib import Path
 
 import pygame
 
-from kidbox.paint.app import _fountain_width_for_direction
-from kidbox.paint.app import _load_canvas_image
-from kidbox.paint.app import _list_archives
-from kidbox.paint.app import _rollover_latest_snapshot
-from kidbox.ui.common import is_primary_pointer_event
+from toddlerbox.paint.app import _fountain_width_for_direction
+from toddlerbox.paint.app import _load_canvas_image
+from toddlerbox.paint.app import _list_archives
+from toddlerbox.paint.app import _rollover_latest_snapshot
+from toddlerbox.ui.common import is_primary_pointer_event
 
 
 def test_list_archives_includes_latest(tmp_path):
