@@ -77,11 +77,7 @@ def _save_surface_atomic(surface: pygame.Surface, path: Path) -> None:
 
 
 def _list_archives(paint_dir: Path) -> List[Path]:
-    files = []
-    for candidate in paint_dir.glob("*.png"):
-        if candidate.name == "latest.png":
-            continue
-        files.append(candidate)
+    files = list(paint_dir.glob("*.png"))
     files.sort(reverse=True)
     return files
 
