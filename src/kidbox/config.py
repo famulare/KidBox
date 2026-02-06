@@ -7,7 +7,7 @@ from typing import Any, Dict
 import yaml
 
 DEFAULT_CONFIG: Dict[str, Any] = {
-    "data_root": "/data/kidbox",
+    "data_root": "/data",
     "launcher": {
         "apps": [
             {

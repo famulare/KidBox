@@ -1,4 +1,4 @@
-data_root: ./data/kidbox
+data_root: ./data
 
 launcher:
   apps:

@@ -4,7 +4,7 @@ from kidbox.photos.app import _thumb_name, _is_image
 
 
 def test_thumb_name():
-    path = Path("/data/kidbox/photos/library/Summer.jpg")
+    path = Path("/data/photos/library/Summer.jpg")
     assert _thumb_name(path) == "Summer_jpg.png"
 
 

@@ -83,7 +83,7 @@ No IPC required in v1.
 ```text
 /opt/kidbox/launcher/launcher.py
 /opt/kidbox/config.yaml
-/data/kidbox/
+/data/
 ```
 
 ---
@@ -192,8 +192,8 @@ Total brushes: ~8–10
 Files:
 
 ```text
-/data/kidbox/paint/latest.png
-/data/kidbox/paint/YYYY-MM-DD_HHMMSS.png
+/data/paint/latest.png
+/data/paint/YYYY-MM-DD_HHMMSS.png
 ```
 
 Rules:
@@ -251,13 +251,13 @@ No delete, no rename.
 * Load images from:
 
 ```text
-/data/kidbox/photos/library/
+/data/photos/library/
 ```
 
 * Generate thumbnails in:
 
 ```text
-/data/kidbox/photos/thumbs/
+/data/photos/thumbs/
 ```
 
 * Tap thumbnail → display in main area
@@ -339,7 +339,7 @@ Ignored:
 * Archives session to:
 
 ```text
-/data/kidbox/typing/sessions.jsonl
+/data/typing/sessions.jsonl
 ```
 
 No prompts, no warnings.

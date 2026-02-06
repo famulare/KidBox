@@ -116,7 +116,7 @@ The launcher supervises apps. Apps exit cleanly back to the launcher. If an app 
 All child-generated data lives under a single directory, configured by `data_root`:
 
 ```
-/data/kidbox/
+/data/
 ├── paint/
 │   ├── latest.png
 │   └── YYYY-MM-DD_HHMMSS.png
@@ -137,7 +137,7 @@ All child-generated data lives under a single directory, configured by `data_roo
 
 Runtime configuration is read from `config.yaml` (repo root for dev) or `/opt/kidbox/config.yaml` (deployment). Key settings:
 
-- `data_root` (default dev config: `./data/kidbox`)
+- `data_root` (default dev config: `./data`)
 - `launcher.apps` (icon paths + commands)
 - `paint.autosave_seconds`
 - `paint.palette`

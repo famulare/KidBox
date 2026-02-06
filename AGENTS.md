@@ -35,7 +35,7 @@ Use `uv` with the local `.venv` and a writable cache directory.
 ## Security & Configuration Tips
 - Do not commit secrets or local env files (`.venv/`, `.env`).
 - Dev config uses `config.yaml` at repo root; production config should live at `/opt/kidbox/config.yaml`.
-- Data writes default to `data_root` from config; dev defaults to `./data/kidbox`.
+- Data writes default to `data_root` from config; dev defaults to `./data`.
 
 ## Agent-Specific Instructions
 - Keep UI minimal and fullscreen; avoid dialogs and OS UI elements.

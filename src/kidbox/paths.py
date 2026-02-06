@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 
 def get_data_root(config: Dict[str, Any]) -> Path:
-    root = config.get("data_root", "/data/kidbox")
+    root = config.get("data_root", "/data")
     return Path(root).expanduser().resolve()
 
 
