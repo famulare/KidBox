@@ -186,7 +186,7 @@ Development uses `uv` with a local `.venv`:
 ```bash
 UV_CACHE_DIR=/tmp/uv-cache uv venv .venv
 source .venv/bin/activate
-UV_CACHE_DIR=/tmp/uv-cache uv pip install -e .[dev]
+UV_CACHE_DIR=/tmp/uv-cache uv pip install -e .
 ```
 
 ## Convenience Script

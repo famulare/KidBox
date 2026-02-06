@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import pygame
+try:
+    from PIL import Image
+except Exception:
+    Image = None
 
 from toddlerbox.config import load_config
 from toddlerbox.paths import ensure_directories, get_data_root
@@ -23,6 +28,9 @@ class PhotoItem:
     thumb: Optional[pygame.Surface] = None
 
 
+_EXIF_DATE_TAGS = (36867, 36868, 306)
+
+
 def _is_image(path: Path) -> bool:
     return path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
 
@@ -38,6 +46,49 @@ def _scale_to_fit(surface: pygame.Surface, size: Tuple[int, int]) -> pygame.Surf
     scale = min(target_w / src_w, target_h / src_h)
     new_size = (max(1, int(src_w * scale)), max(1, int(src_h * scale)))
     return pygame.transform.smoothscale(surface, new_size)
+
+
+def _parse_exif_datetime(value: object) -> Optional[datetime]:
+    if not isinstance(value, str):
+        return None
+    try:
+        # EXIF uses "YYYY:MM:DD HH:MM:SS"
+        return datetime.strptime(value.strip(), "%Y:%m:%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def _photo_taken_at(path: Path) -> Optional[datetime]:
+    if Image is None:
+        return None
+    try:
+        with Image.open(path) as image:
+            exif = image.getexif()
+    except Exception:
+        return None
+
+    if not exif:
+        return None
+    for tag in _EXIF_DATE_TAGS:
+        taken = _parse_exif_datetime(exif.get(tag))
+        if taken is not None:
+            return taken
+    return None
+
+
+def _photo_sort_key(path: Path) -> Tuple[int, float, str]:
+    taken = _photo_taken_at(path)
+    if taken is not None:
+        return (0, -taken.timestamp(), path.name.lower())
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    return (1, -mtime, path.name.lower())
+
+
+def _list_photos(library_dir: Path) -> List[Path]:
+    return sorted((path for path in library_dir.iterdir() if _is_image(path)), key=_photo_sort_key)
 
 
 class PhotosApp:
@@ -78,7 +129,7 @@ class PhotosApp:
         self.thumb_size = self.thumb_width
         self.scroll_y = 0
 
-        self.items = [PhotoItem(path) for path in sorted(self.library_dir.iterdir()) if _is_image(path)]
+        self.items = [PhotoItem(path) for path in _list_photos(self.library_dir)]
         self.current_index = 0
         self.current_image: Optional[pygame.Surface] = None
         self._ensure_thumbnails()
