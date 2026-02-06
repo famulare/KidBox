@@ -11,7 +11,7 @@
 ## Build, Test, and Development Commands
 Use `uv` with the local `.venv` and a writable cache directory.
 - `UV_CACHE_DIR=/tmp/uv-cache uv venv .venv` — create or refresh the virtualenv.
-- `UV_CACHE_DIR=/tmp/uv-cache uv pip install -e .` — install in editable mode.
+- `UV_CACHE_DIR=/tmp/uv-cache uv pip install -e ".[dev]"` — install in editable mode with test deps.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.launcher` — run launcher.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.paint` — run paint.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.photos` — run photos.

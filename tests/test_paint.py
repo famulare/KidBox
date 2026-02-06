@@ -1,7 +1,9 @@
+import os
 from pathlib import Path
 
 import pygame
 
+from toddlerbox.paint.app import _coerce_archive_limit
 from toddlerbox.paint.app import _fountain_width_for_direction
 from toddlerbox.paint.app import _load_canvas_image
 from toddlerbox.paint.app import _list_archives
@@ -14,11 +16,36 @@ def test_list_archives_includes_latest(tmp_path):
     (tmp_path / "2024-01-01_120000.png").write_bytes(b"")
     (tmp_path / "2024-01-02_120000.png").write_bytes(b"")
 
+    os.utime(tmp_path / "2024-01-01_120000.png", (1, 1))
+    os.utime(tmp_path / "2024-01-02_120000.png", (2, 2))
+    os.utime(tmp_path / "latest.png", (3, 3))
+
     archives = _list_archives(tmp_path)
     names = [p.name for p in archives]
     assert "latest.png" in names
     assert names[0] == "latest.png"
 
+
+def test_list_archives_orders_by_mtime(tmp_path):
+    a = tmp_path / "2024-01-01_120000.png"
+    b = tmp_path / "2024-01-02_120000.png"
+    c = tmp_path / "2024-01-03_120000.png"
+
+    for path in (a, b, c):
+        path.write_bytes(b"")
+
+    os.utime(a, (10, 10))
+    os.utime(c, (20, 20))
+    os.utime(b, (30, 30))
+
+    archives = _list_archives(tmp_path)
+    assert [p.name for p in archives[:3]] == [b.name, c.name, a.name]
+
+
+def test_coerce_archive_limit_clamps_and_falls_back():
+    assert _coerce_archive_limit("5", 100) == 5
+    assert _coerce_archive_limit(-2, 100) == 0
+    assert _coerce_archive_limit("bad", 100) == 100
 
 def test_rollover_latest_snapshot_archives_existing_latest(tmp_path):
     latest = tmp_path / "latest.png"

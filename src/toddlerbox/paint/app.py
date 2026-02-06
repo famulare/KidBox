@@ -84,7 +84,7 @@ def _save_surface_atomic(surface: pygame.Surface, path: Path) -> None:
 
 def _list_archives(paint_dir: Path) -> List[Path]:
     files = list(paint_dir.glob("*.png"))
-    files.sort(reverse=True)
+    files.sort(key=lambda path: (path.stat().st_mtime, path.name), reverse=True)
     return files
 
 
@@ -103,6 +103,14 @@ def _rollover_latest_snapshot(paint_dir: Path, now: Optional[datetime] = None) -
     except OSError:
         return None
     return archive_path
+
+
+def _coerce_archive_limit(value: object, default: int) -> int:
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0, limit)
 
 
 def _load_icon(path: Path, size: Tuple[int, int], *, preserve_aspect: bool = True) -> Optional[pygame.Surface]:
@@ -598,11 +606,14 @@ class PaintApp:
         self._update_thumbnail_button()
 
     def _enforce_archive_limit(self) -> None:
-        max_archives = int(self.config.get("paint", {}).get("max_archives", MAX_ARCHIVES))
+        max_archives = _coerce_archive_limit(
+            self.config.get("paint", {}).get("max_archives", MAX_ARCHIVES),
+            MAX_ARCHIVES,
+        )
         archives = _list_archives(self.paint_dir)
         # Exclude latest.png from the count
         archives = [p for p in archives if p.name != "latest.png"]
-        while len(archives) > max_archives:
+        while len(archives) > max_archives and archives:
             oldest = archives.pop()  # list is sorted newest-first
             try:
                 oldest.unlink()
