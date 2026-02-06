@@ -203,6 +203,68 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m kidbox.typing
 
 ---
 
+## GNOME Launch Setup (Deployment)
+
+KidBox is launched by GNOME autostart after user login.
+
+### 1) Enable autologin in GNOME
+
+KidBox assumes the target user logs into a GNOME session automatically.
+
+### 2) Add an autostart desktop entry
+
+Create:
+
+```text
+~/.config/autostart/kidbox-launcher.desktop
+```
+
+Example:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=KidBox Launcher
+Exec=/home/<user>/.local/bin/start-kidbox-launcher.sh
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=1
+Terminal=false
+```
+
+### 3) Start script executed by GNOME
+
+Create:
+
+```text
+~/.local/bin/start-kidbox-launcher.sh
+```
+
+Example:
+
+```bash
+#!/usr/bin/env bash
+cd /opt/kidbox
+export UV_CACHE_DIR=/tmp/uv-cache
+exec /opt/kidbox/.venv/bin/python -m kidbox.launcher
+```
+
+Make it executable:
+
+```bash
+chmod +x ~/.local/bin/start-kidbox-launcher.sh
+```
+
+### 4) Delay behavior
+
+There are two independent launch delays:
+
+- `X-GNOME-Autostart-Delay` in the `.desktop` file.
+- Any `sleep` in `start-kidbox-launcher.sh`.
+
+Use one delay mechanism or keep both values low to avoid a long blank/login-to-launch gap.
+
+---
+
 ## Tests
 
 ```bash
