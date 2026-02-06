@@ -24,6 +24,19 @@ FINGER_EVENTS = {event for event in (FINGERDOWN, FINGERMOTION, FINGERUP) if even
 
 _ICON_CACHE: Dict[Tuple[str, Tuple[int, int]], pygame.Surface] = {}
 
+
+def _is_primary_pointer_event(event: pygame.event.Event, *, is_down: bool) -> bool:
+    expected_type = pygame.MOUSEBUTTONDOWN if is_down else pygame.MOUSEBUTTONUP
+    if event.type == expected_type:
+        # Some touch stacks can emit emulated mouse events with button 0.
+        button = getattr(event, "button", 1)
+        if button in {0, 1}:
+            return True
+        return bool(getattr(event, "touch", False))
+    finger_type = FINGERDOWN if is_down else FINGERUP
+    return finger_type is not None and event.type == finger_type
+
+
 @dataclass
 class Stroke:
     tool: str
@@ -467,9 +480,7 @@ class PaintApp:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             self.recall_open = False
             return
-        if event.type == pygame.MOUSEBUTTONDOWN or (FINGERDOWN is not None and event.type == FINGERDOWN):
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button != 1:
-                return
+        if _is_primary_pointer_event(event, is_down=True):
             pos = self._event_pos(event)
             if pos is None:
                 return
@@ -486,9 +497,7 @@ class PaintApp:
                     self.undo_stack = []
                     self.recall_open = False
                     return
-        if event.type == pygame.MOUSEBUTTONUP or (FINGERUP is not None and event.type == FINGERUP):
-            if event.type == pygame.MOUSEBUTTONUP and event.button != 1:
-                return
+        if _is_primary_pointer_event(event, is_down=False):
             self.pointer_down = False
         if event.type == pygame.MOUSEWHEEL:
             delta = event.x if event.x != 0 else -event.y
@@ -523,9 +532,7 @@ class PaintApp:
                     continue
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                     running = False
-                elif event.type == pygame.MOUSEBUTTONDOWN or (FINGERDOWN is not None and event.type == FINGERDOWN):
-                    if event.type == pygame.MOUSEBUTTONDOWN and event.button != 1:
-                        continue
+                elif _is_primary_pointer_event(event, is_down=True):
                     pos = self._event_pos(event)
                     if pos is None:
                         continue
@@ -542,9 +549,7 @@ class PaintApp:
                     if pos is None:
                         continue
                     self._handle_pointer_move(pos)
-                elif event.type == pygame.MOUSEBUTTONUP or (FINGERUP is not None and event.type == FINGERUP):
-                    if event.type == pygame.MOUSEBUTTONUP and event.button != 1:
-                        continue
+                elif _is_primary_pointer_event(event, is_down=False):
                     self.pointer_down = False
                     self._handle_pointer_up()
 
