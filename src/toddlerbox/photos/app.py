@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 import json
@@ -108,6 +107,27 @@ def _list_photos(library_dir: Path, exif_cache: dict[str, Optional[float]]) -> T
     )
 
 
+def _load_exif_cache(path: Path) -> dict[str, Optional[float]]:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            return {str(key): (val if isinstance(val, (int, float)) or val is None else None) for key, val in data.items()}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_exif_cache(path: Path, data: dict[str, Optional[float]]) -> None:
+    try:
+        tmp_path = path.with_suffix(".json.tmp")
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            json.dump(data, handle)
+        tmp_path.replace(path)
+    except Exception:
+        pass
+
+
 class PhotosApp:
     def __init__(
         self,
@@ -147,17 +167,18 @@ class PhotosApp:
         self.thumb_size = self.thumb_width
         self.scroll_y = 0
 
-        self.exif_cache = self._load_exif_cache()
+        self.exif_cache = _load_exif_cache(self.exif_cache_path)
         photo_paths, cache_dirty = _list_photos(self.library_dir, self.exif_cache)
         self.items = [PhotoItem(path) for path in photo_paths]
         self.current_index = 0
         self.current_image: Optional[pygame.Surface] = None
         self.initial_thumb_count = int(self.config.get("photos", {}).get("initial_thumbs", 10))
         self.thumb_load_batch = int(self.config.get("photos", {}).get("thumb_batch", 2))
-        self._thumb_queue = deque(range(len(self.items)))
+        self.thumb_idle_ms = int(self.config.get("photos", {}).get("thumb_idle_ms", 400))
+        self._init_thumb_queue()
         self._load_initial_thumbnails()
         if cache_dirty:
-            self._save_exif_cache()
+            _save_exif_cache(self.exif_cache_path, self.exif_cache)
         self._load_current_image()
 
         self.drag_start: Optional[Tuple[int, int]] = None
@@ -172,35 +193,53 @@ class PhotosApp:
         self.left_arrow = Button(rect=pygame.Rect(self.main_rect.left + 20, self.screen_rect.centery - 30, 50, 60), fill=(245, 245, 245))
         self.right_arrow = Button(rect=pygame.Rect(self.main_rect.right - 70, self.screen_rect.centery - 30, 50, 60), fill=(245, 245, 245))
 
-    def _load_exif_cache(self) -> dict[str, Optional[float]]:
-        try:
-            with self.exif_cache_path.open("r", encoding="utf-8") as handle:
-                data = json.load(handle)
-            if isinstance(data, dict):
-                return {str(key): (val if isinstance(val, (int, float)) or val is None else None) for key, val in data.items()}
-        except Exception:
-            pass
-        return {}
-
-    def _save_exif_cache(self) -> None:
-        try:
-            tmp_path = self.exif_cache_path.with_suffix(".json.tmp")
-            with tmp_path.open("w", encoding="utf-8") as handle:
-                json.dump(self.exif_cache, handle)
-            tmp_path.replace(self.exif_cache_path)
-        except Exception:
-            pass
+    def _init_thumb_queue(self) -> None:
+        self._pending_order = list(range(len(self.items)))
+        self._pending_set = set(self._pending_order)
+        self._pending_cursor = 0
 
     def _load_initial_thumbnails(self) -> None:
-        initial_count = max(0, min(self.initial_thumb_count, len(self._thumb_queue)))
-        for _ in range(initial_count):
-            self._load_next_thumbnail()
+        initial_count = max(0, min(self.initial_thumb_count, len(self._pending_order)))
+        for idx in range(initial_count):
+            self._load_thumbnail_for_index(idx)
+            self._pending_set.discard(idx)
+        self._pending_cursor = initial_count
 
-    def _load_next_thumbnail(self) -> None:
-        if not self._thumb_queue:
+    def _visible_indices(self) -> List[int]:
+        indices: List[int] = []
+        y = self.thumb_gap - self.scroll_y
+        for idx, _item in enumerate(self.items):
+            rect = pygame.Rect(
+                self.strip_rect.left + self.thumb_padding_x,
+                y,
+                self.thumb_width,
+                self.thumb_size,
+            )
+            if rect.bottom >= 0 and rect.top <= self.screen_rect.height:
+                indices.append(idx)
+            y += self.thumb_size + self.thumb_gap
+        return indices
+
+    def _next_pending_index(self, prefer_indices: Optional[List[int]]) -> Optional[int]:
+        if prefer_indices:
+            for idx in prefer_indices:
+                if idx in self._pending_set:
+                    return idx
+        while self._pending_cursor < len(self._pending_order):
+            idx = self._pending_order[self._pending_cursor]
+            self._pending_cursor += 1
+            if idx in self._pending_set:
+                return idx
+        return None
+
+    def _load_next_thumbnail(self, prefer_indices: Optional[List[int]] = None) -> None:
+        if not self._pending_set:
             return
-        idx = self._thumb_queue.popleft()
+        idx = self._next_pending_index(prefer_indices)
+        if idx is None:
+            return
         self._load_thumbnail_for_index(idx)
+        self._pending_set.discard(idx)
 
     def _load_thumbnail_for_index(self, idx: int) -> None:
         if idx < 0 or idx >= len(self.items):
@@ -241,7 +280,7 @@ class PhotosApp:
                 self.exif_cache.pop(rel, None)
                 cache_dirty = True
         if cache_dirty:
-            self._save_exif_cache()
+            _save_exif_cache(self.exif_cache_path, self.exif_cache)
 
         try:
             for thumb_path in self.thumb_dir.iterdir():
@@ -343,8 +382,17 @@ class PhotosApp:
         running = True
         self._render()
         self._cleanup_caches()
+        last_input_ms = pygame.time.get_ticks()
         while running:
             for event in pygame.event.get():
+                if event.type in {
+                    pygame.MOUSEMOTION,
+                    pygame.MOUSEBUTTONDOWN,
+                    pygame.MOUSEBUTTONUP,
+                    pygame.MOUSEWHEEL,
+                    pygame.KEYDOWN,
+                }:
+                    last_input_ms = pygame.time.get_ticks()
                 if event.type == pygame.QUIT:
                     running = False
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -405,8 +453,10 @@ class PhotosApp:
                         self._scroll_thumbnails(-40 if event.button == 4 else 40)
 
             self._render()
-            for _ in range(self.thumb_load_batch):
-                self._load_next_thumbnail()
+            if pygame.time.get_ticks() - last_input_ms >= self.thumb_idle_ms:
+                visible_indices = self._visible_indices()
+                for _ in range(self.thumb_load_batch):
+                    self._load_next_thumbnail(visible_indices)
             self.clock.tick(60)
 
         if quit_on_exit:
@@ -422,6 +472,75 @@ def main() -> None:
 
 def run_embedded(screen: pygame.Surface, screen_rect: pygame.Rect, clock: pygame.time.Clock) -> None:
     PhotosApp(screen=screen, screen_rect=screen_rect, clock=clock).run(quit_on_exit=False)
+
+
+class PhotosPrewarmer:
+    def __init__(self, screen_rect: pygame.Rect) -> None:
+        config = load_config()
+        data_root = get_data_root(config)
+        dirs = ensure_directories(data_root)
+        self.library_dir = dirs["photos"] / "library"
+        self.thumb_dir = dirs["photos"] / "thumbs"
+        self.exif_cache_path = self.thumb_dir / "exif_cache.json"
+        self.exif_cache = _load_exif_cache(self.exif_cache_path)
+
+        base_strip_width = max(160, int(screen_rect.width * 0.25))
+        strip_width = max(112, int(base_strip_width * 0.7))
+        thumb_padding_x = 12
+        self.thumb_width = max(1, strip_width - (thumb_padding_x * 2))
+        self.thumb_size = self.thumb_width
+
+        photo_paths, cache_dirty = _list_photos(self.library_dir, self.exif_cache)
+        self.items = [PhotoItem(path) for path in photo_paths]
+        if cache_dirty:
+            _save_exif_cache(self.exif_cache_path, self.exif_cache)
+
+        self.pending = list(range(len(self.items)))
+        self.pending_set = set(self.pending)
+        self.pending_cursor = 0
+
+    def step(self, batch: int) -> None:
+        for _ in range(max(0, batch)):
+            idx = self._next_pending_index()
+            if idx is None:
+                return
+            self._load_thumbnail_for_index(idx)
+            self.pending_set.discard(idx)
+
+    def _next_pending_index(self) -> Optional[int]:
+        while self.pending_cursor < len(self.pending):
+            idx = self.pending[self.pending_cursor]
+            self.pending_cursor += 1
+            if idx in self.pending_set:
+                return idx
+        return None
+
+    def _fit_thumb_surface(self, surface: pygame.Surface) -> pygame.Surface:
+        if surface.get_width() <= self.thumb_width and surface.get_height() <= self.thumb_size:
+            return surface
+        return _scale_to_fit(surface, (self.thumb_width, self.thumb_size))
+
+    def _load_thumbnail_for_index(self, idx: int) -> None:
+        if idx < 0 or idx >= len(self.items):
+            return
+        item = self.items[idx]
+        thumb_path = self.thumb_dir / _thumb_name(item.path)
+        try:
+            source_mtime = item.path.stat().st_mtime
+        except OSError:
+            return
+        if thumb_path.exists():
+            try:
+                if thumb_path.stat().st_mtime >= source_mtime:
+                    return
+            except Exception:
+                pass
+        try:
+            image = pygame.image.load(str(item.path)).convert_alpha()
+            thumb = self._fit_thumb_surface(image)
+            pygame.image.save(thumb, str(thumb_path))
+        except Exception:
+            return
 
 
 if __name__ == "__main__":

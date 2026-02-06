@@ -12,7 +12,7 @@ import pygame
 
 from toddlerbox.config import load_config
 from toddlerbox.paint.app import run_embedded as run_paint_embedded
-from toddlerbox.photos.app import run_embedded as run_photos_embedded
+from toddlerbox.photos.app import PhotosPrewarmer, run_embedded as run_photos_embedded
 from toddlerbox.typing.app import run_embedded as run_typing_embedded
 from toddlerbox.ui.common import (
     Button,
@@ -161,12 +161,25 @@ def main() -> None:
     background = (248, 244, 236)
 
     buttons = _build_buttons(apps, screen_rect)
+    prewarm_enabled = bool(config.get("launcher", {}).get("photos_prewarm", True))
+    prewarm_idle_ms = int(config.get("launcher", {}).get("photos_prewarm_idle_ms", 600))
+    prewarm_batch = int(config.get("launcher", {}).get("photos_prewarm_batch", 2))
+    prewarmer = PhotosPrewarmer(screen_rect) if prewarm_enabled else None
     pointer_block_until = 0.0
+    last_input = time.monotonic()
 
     running = True
     _draw_launcher_frame(screen, background, apps, buttons)
     while running:
         for event in pygame.event.get():
+            if event.type in {
+                pygame.MOUSEMOTION,
+                pygame.MOUSEBUTTONDOWN,
+                pygame.MOUSEBUTTONUP,
+                pygame.MOUSEWHEEL,
+                pygame.KEYDOWN,
+            }:
+                last_input = time.monotonic()
             if event.type == pygame.QUIT:
                 running = False
             elif is_escape_chord(event):
@@ -175,6 +188,7 @@ def main() -> None:
             elif ignore_system_shortcut(event):
                 continue
             elif is_primary_pointer_event(event, is_down=True):
+                last_input = time.monotonic()
                 if time.monotonic() < pointer_block_until:
                     continue
                 pos = pointer_event_pos(event, screen_rect)
@@ -186,6 +200,8 @@ def main() -> None:
                         if used_subprocess:
                             screen, screen_rect = _restore_launcher_window()
                             buttons = _build_buttons(apps, screen_rect)
+                            if prewarm_enabled:
+                                prewarmer = PhotosPrewarmer(screen_rect)
                         pointer_events = [pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP]
                         finger_down = getattr(pygame, "FINGERDOWN", None)
                         finger_up = getattr(pygame, "FINGERUP", None)
@@ -195,10 +211,14 @@ def main() -> None:
                             pointer_events.append(finger_up)
                         pygame.event.clear(pointer_events)
                         pointer_block_until = time.monotonic() + 0.25
+                        last_input = time.monotonic()
                         _draw_launcher_frame(screen, background, apps, buttons)
                         break
 
         _draw_launcher_frame(screen, background, apps, buttons)
+        now = time.monotonic()
+        if prewarmer and now - last_input >= (prewarm_idle_ms / 1000.0) and now >= pointer_block_until:
+            prewarmer.step(prewarm_batch)
         clock.tick(60)
 
     pygame.quit()
