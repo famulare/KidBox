@@ -70,6 +70,12 @@ class Stroke:
     fountain_width: float = 0.0
 
 
+@dataclass
+class RecallItem:
+    thumb: pygame.Surface
+    source: Optional[Path] = None
+
+
 def _save_surface_atomic(surface: pygame.Surface, path: Path) -> None:
     # Keep a .png suffix so pygame writes a PNG-encoded file.
     tmp_path = path.with_name(f".{path.stem}.tmp{path.suffix}")
@@ -281,10 +287,16 @@ class PaintApp:
         self._build_ui()
 
         self.recall_open = False
-        self.recall_scroll = 0
-        self.recall_thumbnails: List[Tuple[pygame.Surface, pygame.Rect, Path]] = []
+        self.recall_items: List[RecallItem] = []
         self.recall_strip_rect = pygame.Rect(0, 0, 0, 0)
+        self.recall_scroll_y = 0
         self.recall_max_scroll = 0
+        self.recall_thumb_padding_x = 12
+        self.recall_thumb_gap = 12
+        self.recall_thumb_size = 0
+        self.recall_strip_drag_last_y: Optional[int] = None
+        self.recall_pressed_index: Optional[int] = None
+        self.recall_drag_distance = 0
         self.pointer_down = False
 
     def _scaled_size_values(self) -> List[int]:
@@ -549,6 +561,10 @@ class PaintApp:
     def _archive_current(self) -> None:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
         archive_path = self.paint_dir / f"{timestamp}.png"
+        counter = 1
+        while archive_path.exists():
+            archive_path = self.paint_dir / f"{timestamp}_{counter}.png"
+            counter += 1
         _save_surface_atomic(self.canvas_surface, archive_path)
         self._update_thumbnail_button()
 
@@ -561,38 +577,64 @@ class PaintApp:
         # Persist current canvas before showing recall so latest work appears immediately.
         self._autosave_latest()
         self._update_thumbnail_button()
-        archives = _list_archives(self.paint_dir)
+        self.recall_strip_rect = self.controls_rect.copy()
+        self.recall_thumb_size = max(1, self.recall_strip_rect.width - (self.recall_thumb_padding_x * 2))
+        self.recall_items = [
+            RecallItem(thumb=pygame.transform.smoothscale(self.canvas_surface, (self.recall_thumb_size, self.recall_thumb_size)))
+        ]
+        archives = [path for path in _list_archives(self.paint_dir) if path.name != "latest.png"]
         if not archives and self.recall_demo_path.exists():
             archives = [self.recall_demo_path]
-        thumb_size = 140
-        padding = 16
-        strip_height = thumb_size + padding * 2
-        self.recall_strip_rect = pygame.Rect(0, (self.screen_rect.height - strip_height) // 2, self.screen_rect.width, strip_height)
-        self.recall_thumbnails = []
-        x = padding
         for path in archives:
-            image = _load_thumbnail(path, (thumb_size, thumb_size))
+            image = _load_thumbnail(path, (self.recall_thumb_size, self.recall_thumb_size))
             if image is None:
                 continue
-            rect = pygame.Rect(x, self.recall_strip_rect.top + padding, thumb_size, thumb_size)
-            self.recall_thumbnails.append((image, rect, path))
-            x += thumb_size + padding
-        if not self.recall_thumbnails and self.recall_demo_path.exists():
-            image = _load_thumbnail(self.recall_demo_path, (thumb_size, thumb_size))
-            if image is not None:
-                rect = pygame.Rect(x, self.recall_strip_rect.top + padding, thumb_size, thumb_size)
-                self.recall_thumbnails.append((image, rect, self.recall_demo_path))
-                x += thumb_size + padding
-        if not self.recall_thumbnails:
-            return
-        self.recall_scroll = 0
-        self.recall_max_scroll = max(0, x - self.screen_rect.width)
+            self.recall_items.append(RecallItem(thumb=image, source=path))
+        self.recall_scroll_y = 0
+        self.recall_strip_drag_last_y = None
+        self.recall_pressed_index = None
+        self.recall_drag_distance = 0
+        self.recall_max_scroll = self._recall_max_scroll()
         self.recall_open = True
 
-    def _handle_recall_event(self, event: pygame.event.Event) -> None:
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+    def _recall_max_scroll(self) -> int:
+        total_height = len(self.recall_items) * (self.recall_thumb_size + self.recall_thumb_gap) + self.recall_thumb_gap
+        return max(0, total_height - self.recall_strip_rect.height)
+
+    def _scroll_recall(self, delta: int) -> None:
+        self.recall_scroll_y = max(0, min(self.recall_max_scroll, self.recall_scroll_y + delta))
+
+    def _recall_item_rect(self, index: int) -> pygame.Rect:
+        y = self.recall_thumb_gap - self.recall_scroll_y + index * (self.recall_thumb_size + self.recall_thumb_gap)
+        return pygame.Rect(
+            self.recall_strip_rect.left + self.recall_thumb_padding_x,
+            self.recall_strip_rect.top + y,
+            self.recall_thumb_size,
+            self.recall_thumb_size,
+        )
+
+    def _handle_recall_selection(self, item: RecallItem) -> None:
+        if item.source is None:
             self.recall_open = False
             return
+        loaded = _load_canvas_image(item.source, self.canvas_rect.size)
+        if loaded is None:
+            return
+        self.canvas_surface = loaded.copy()
+        self.undo_stack = []
+        # Always promote selected archive into latest working copy.
+        self._autosave_latest()
+        self.last_autosave = time.monotonic()
+        self._update_thumbnail_button()
+        self.recall_open = False
+
+    def _recall_index_at_pos(self, pos: Point) -> Optional[int]:
+        for idx, _ in enumerate(self.recall_items):
+            if self._recall_item_rect(idx).collidepoint(pos):
+                return idx
+        return None
+
+    def _handle_recall_event(self, event: pygame.event.Event) -> None:
         if _is_primary_pointer_event(event, is_down=True):
             pos = self._event_pos(event)
             if pos is None:
@@ -600,40 +642,60 @@ class PaintApp:
             self.pointer_down = True
             if not self.recall_strip_rect.collidepoint(pos):
                 self.recall_open = False
+                self.pointer_down = False
+                self.recall_strip_drag_last_y = None
+                self.recall_pressed_index = None
+                self.recall_drag_distance = 0
                 return
-            for image, rect, path in self.recall_thumbnails:
-                moved_rect = rect.move(-self.recall_scroll, 0)
-                if moved_rect.collidepoint(pos):
-                    loaded = _load_canvas_image(path, self.canvas_rect.size)
-                    if loaded is None:
-                        continue
-                    self.canvas_surface = loaded.copy()
-                    self.undo_stack = []
-                    self.recall_open = False
-                    return
+            self.recall_strip_drag_last_y = pos[1]
+            self.recall_pressed_index = self._recall_index_at_pos(pos)
+            self.recall_drag_distance = 0
         if _is_primary_pointer_event(event, is_down=False):
             self.pointer_down = False
+            pos = self._event_pos(event)
+            if (
+                pos is not None
+                and self.recall_drag_distance < 10
+                and self.recall_pressed_index is not None
+                and self._recall_index_at_pos(pos) == self.recall_pressed_index
+            ):
+                self._handle_recall_selection(self.recall_items[self.recall_pressed_index])
+            self.recall_strip_drag_last_y = None
+            self.recall_pressed_index = None
+            self.recall_drag_distance = 0
         if event.type == pygame.MOUSEWHEEL:
-            delta = event.x if event.x != 0 else -event.y
-            new_scroll = self.recall_scroll - delta * 40
-            self.recall_scroll = max(0, min(self.recall_max_scroll, new_scroll))
-        if event.type == pygame.MOUSEMOTION and (self.pointer_down or event.buttons[0]):
-            new_scroll = self.recall_scroll - event.rel[0]
-            self.recall_scroll = max(0, min(self.recall_max_scroll, new_scroll))
+            if self.recall_strip_rect.collidepoint(pygame.mouse.get_pos()):
+                self._scroll_recall(-event.y * 40)
+        if event.type == pygame.MOUSEBUTTONDOWN and getattr(event, "button", None) in {4, 5}:
+            pos = self._event_pos(event)
+            if pos and self.recall_strip_rect.collidepoint(pos):
+                self._scroll_recall(-40 if event.button == 4 else 40)
+        if event.type == pygame.MOUSEMOTION and self.recall_strip_drag_last_y is not None:
+            dy = event.pos[1] - self.recall_strip_drag_last_y
+            self._scroll_recall(-dy)
+            self.recall_drag_distance += abs(dy)
+            self.recall_strip_drag_last_y = event.pos[1]
         if FINGERMOTION is not None and event.type == FINGERMOTION and self.pointer_down:
-            new_scroll = self.recall_scroll - int(event.dx * self.screen_rect.width)
-            self.recall_scroll = max(0, min(self.recall_max_scroll, new_scroll))
+            current_y = int(event.y * self.screen_rect.height)
+            if self.recall_strip_drag_last_y is None:
+                self.recall_strip_drag_last_y = current_y
+            dy = current_y - self.recall_strip_drag_last_y
+            self._scroll_recall(-dy)
+            self.recall_drag_distance += abs(dy)
+            self.recall_strip_drag_last_y = current_y
 
     def _draw_recall_overlay(self) -> None:
         overlay = pygame.Surface(self.screen_rect.size, pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 140))
         self.screen.blit(overlay, (0, 0))
         pygame.draw.rect(self.screen, (230, 230, 230), self.recall_strip_rect)
-        for image, rect, _ in self.recall_thumbnails:
-            moved_rect = rect.move(-self.recall_scroll, 0)
-            if moved_rect.right < 0 or moved_rect.left > self.screen_rect.width:
+        for idx, item in enumerate(self.recall_items):
+            rect = self._recall_item_rect(idx)
+            if rect.bottom < self.recall_strip_rect.top or rect.top > self.recall_strip_rect.bottom:
                 continue
-            self.screen.blit(image, moved_rect)
+            self.screen.blit(item.thumb, rect)
+            border_color = (200, 60, 60) if idx == 0 else (120, 120, 120)
+            pygame.draw.rect(self.screen, border_color, rect, width=3 if idx == 0 else 2)
 
     def _render(self) -> None:
         self.screen.fill((252, 248, 240))

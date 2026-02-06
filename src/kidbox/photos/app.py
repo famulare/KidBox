@@ -71,6 +71,8 @@ class PhotosApp:
         self.drag_start: Optional[Tuple[int, int]] = None
         self.drag_delta: Tuple[int, int] = (0, 0)
         self.strip_drag_last_y: Optional[int] = None
+        self.strip_pressed_index: Optional[int] = None
+        self.strip_drag_distance = 0
         self.show_arrows = bool(self.config.get("photos", {}).get("show_arrows", False))
         self.font = pygame.font.SysFont("sans", 18)
 
@@ -126,9 +128,9 @@ class PhotosApp:
         total_height = len(self.items) * (self.thumb_size + self.thumb_gap) + self.thumb_gap
         return max(0, total_height - self.screen_rect.height)
 
-    def _handle_thumb_click(self, pos: Tuple[int, int]) -> None:
+    def _thumb_index_at_pos(self, pos: Tuple[int, int]) -> Optional[int]:
         y = self.thumb_gap - self.scroll_y
-        for idx, item in enumerate(self.items):
+        for idx, _item in enumerate(self.items):
             rect = pygame.Rect(
                 self.strip_rect.left + self.thumb_padding_x,
                 y,
@@ -136,10 +138,9 @@ class PhotosApp:
                 self.thumb_size,
             )
             if rect.collidepoint(pos):
-                self.current_index = idx
-                self._load_current_image()
-                break
+                return idx
             y += self.thumb_size + self.thumb_gap
+        return None
 
     def _scroll_thumbnails(self, delta: int) -> None:
         self.scroll_y = max(0, min(self._max_scroll(), self.scroll_y + delta))
@@ -194,7 +195,8 @@ class PhotosApp:
                         running = False
                     elif self.strip_rect.collidepoint(event.pos):
                         self.strip_drag_last_y = event.pos[1]
-                        self._handle_thumb_click(event.pos)
+                        self.strip_pressed_index = self._thumb_index_at_pos(event.pos)
+                        self.strip_drag_distance = 0
                     elif self.main_rect.collidepoint(event.pos):
                         self.drag_start = event.pos
                         self.drag_delta = (0, 0)
@@ -208,6 +210,7 @@ class PhotosApp:
                 elif event.type == pygame.MOUSEMOTION and self.strip_drag_last_y is not None:
                     dy = event.pos[1] - self.strip_drag_last_y
                     self._scroll_thumbnails(-dy)
+                    self.strip_drag_distance += abs(dy)
                     self.strip_drag_last_y = event.pos[1]
                 elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                     if self.drag_start:
@@ -219,7 +222,16 @@ class PhotosApp:
                                 self._change_index(-1)
                         self.drag_start = None
                         self.drag_delta = (0, 0)
+                    if (
+                        self.strip_pressed_index is not None
+                        and self.strip_drag_distance < 10
+                        and self._thumb_index_at_pos(event.pos) == self.strip_pressed_index
+                    ):
+                        self.current_index = self.strip_pressed_index
+                        self._load_current_image()
                     self.strip_drag_last_y = None
+                    self.strip_pressed_index = None
+                    self.strip_drag_distance = 0
                 elif event.type == pygame.MOUSEWHEEL:
                     if self.strip_rect.collidepoint(pygame.mouse.get_pos()):
                         self._scroll_thumbnails(-event.y * 40)
