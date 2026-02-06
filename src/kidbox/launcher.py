@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shlex
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -48,6 +49,18 @@ def _load_apps(config: Dict[str, Any]) -> List[LauncherApp]:
     return apps
 
 
+def _resolve_command(command: List[str]) -> List[str]:
+    if not command:
+        return []
+    executable = command[0]
+    if executable not in {"python", "python3"}:
+        return command
+    interpreter = sys.executable or shutil.which("python3") or shutil.which("python")
+    if interpreter:
+        return [interpreter, *command[1:]]
+    return command
+
+
 def _build_buttons(apps: List[LauncherApp], screen_rect: pygame.Rect) -> List[Button]:
     icon_size = max(120, int(min(screen_rect.width, screen_rect.height) * 0.18))
     gap = int(icon_size * 0.3)
@@ -71,10 +84,11 @@ def _build_buttons(apps: List[LauncherApp], screen_rect: pygame.Rect) -> List[Bu
 
 
 def _launch_app(app: LauncherApp) -> None:
-    if not app.command:
+    command = _resolve_command(app.command)
+    if not command:
         return
     try:
-        child = subprocess.Popen(app.command, env=set_env_for_child())
+        child = subprocess.Popen(command, env=set_env_for_child())
         child.wait()
     except Exception:
         return
