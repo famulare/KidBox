@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
@@ -189,6 +188,7 @@ def ignore_system_shortcut(event: pygame.event.Event) -> bool:
 
 
 def set_env_for_child() -> dict:
+    import os
     env = os.environ.copy()
     env["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
     return env

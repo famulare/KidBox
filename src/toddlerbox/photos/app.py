@@ -14,6 +14,11 @@ except Exception:
 
 FINGERMOTION = getattr(pygame, "FINGERMOTION", None)
 
+# --- Tuning constants ---
+DRAG_THRESHOLD = 10
+SWIPE_THRESHOLD = 80
+SCROLL_STEP = 40
+
 from toddlerbox.config import load_config
 from toddlerbox.paths import ensure_directories, get_data_root
 from toddlerbox.ui.common import (
@@ -471,7 +476,7 @@ class PhotosApp:
                         continue
                     if self.drag_start:
                         dx, dy = self.drag_delta
-                        if abs(dx) > 80 and abs(dx) > abs(dy):
+                        if abs(dx) > SWIPE_THRESHOLD and abs(dx) > abs(dy):
                             if dx < 0:
                                 self._change_index(1)
                             else:
@@ -480,7 +485,7 @@ class PhotosApp:
                         self.drag_delta = (0, 0)
                     if (
                         self.strip_pressed_index is not None
-                        and self.strip_drag_distance < 10
+                        and self.strip_drag_distance < DRAG_THRESHOLD
                         and self._thumb_index_at_pos(pos) == self.strip_pressed_index
                     ):
                         self.current_index = self.strip_pressed_index
@@ -490,11 +495,11 @@ class PhotosApp:
                     self.strip_drag_distance = 0
                 elif event.type == pygame.MOUSEWHEEL:
                     if self.strip_rect.collidepoint(pygame.mouse.get_pos()):
-                        self._scroll_thumbnails(-event.y * 40)
+                        self._scroll_thumbnails(-event.y * SCROLL_STEP)
                         last_scroll_ms = pygame.time.get_ticks()
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in {4, 5}:
                     if self.strip_rect.collidepoint(event.pos):
-                        self._scroll_thumbnails(-40 if event.button == 4 else 40)
+                        self._scroll_thumbnails(-SCROLL_STEP if event.button == 4 else SCROLL_STEP)
                         last_scroll_ms = pygame.time.get_ticks()
 
             self._render()

@@ -26,6 +26,14 @@ Point = Tuple[int, int]
 
 FINGERMOTION = getattr(pygame, "FINGERMOTION", None)
 
+# --- Tuning constants ---
+DRAG_THRESHOLD = 10
+UNDO_MAX_DEPTH = 10
+FOUNTAIN_SMOOTHING = 0.35
+FOUNTAIN_DENSITY = 1.5
+SCROLL_STEP = 40
+MAX_ARCHIVES = 100
+
 _ICON_CACHE: Dict[Tuple[str, Tuple[int, int], bool], pygame.Surface] = {}
 
 
@@ -192,11 +200,15 @@ def _bucket_fill(surface: pygame.Surface, pos: Point, color: Color) -> None:
     target_mapped = surface.map_rgb(target)
     replacement = surface.map_rgb(color)
     pixels = pygame.PixelArray(surface)
+    visited: set = set()
     stack = [(x, y)]
     while stack:
         cx, cy = stack.pop()
         if cx < 0 or cy < 0 or cx >= width or cy >= height:
             continue
+        if (cx, cy) in visited:
+            continue
+        visited.add((cx, cy))
         if pixels[cx, cy] != target_mapped:
             continue
         pixels[cx, cy] = replacement
@@ -274,6 +286,7 @@ class PaintApp:
         self.size_values = self._scaled_size_values()
         self.current_size = self.size_values[0]
         self.undo_stack: List[pygame.Surface] = []
+        self.redo_stack: List[pygame.Surface] = []
         self.current_stroke: Optional[Stroke] = None
 
         self.font = pygame.font.SysFont("sans", 18)
@@ -299,6 +312,8 @@ class PaintApp:
         self.recall_pressed_index: Optional[int] = None
         self.recall_drag_distance = 0
         self.pointer_down = False
+        self._recall_overlay = pygame.Surface(self.screen_rect.size, pygame.SRCALPHA)
+        self._recall_overlay.fill((0, 0, 0, 140))
 
     def _scaled_size_values(self) -> List[int]:
         base_sizes = [3, 6, 12]
@@ -399,13 +414,22 @@ class PaintApp:
         )
         self.action_buttons["new"] = Button(rect=new_rect, label="New", fill=(245, 245, 245))
 
+        half_w = max(1, (inner_w - action_gap) // 2)
         undo_rect = pygame.Rect(
             bottom_left,
             new_rect.bottom + action_gap,
-            inner_w,
+            half_w,
             action_h,
         )
         self.action_buttons["undo"] = Button(rect=undo_rect, label="Undo", fill=(245, 245, 245))
+
+        redo_rect = pygame.Rect(
+            bottom_left + half_w + action_gap,
+            new_rect.bottom + action_gap,
+            half_w,
+            action_h,
+        )
+        self.action_buttons["redo"] = Button(rect=redo_rect, label="Redo", fill=(245, 245, 245))
 
         palette_top = size_bottom + gap
         palette_bottom = bottom_top - gap
@@ -435,12 +459,19 @@ class PaintApp:
 
     def _push_undo(self) -> None:
         self.undo_stack.append(self.canvas_surface.copy())
-        if len(self.undo_stack) > 10:
+        if len(self.undo_stack) > UNDO_MAX_DEPTH:
             self.undo_stack.pop(0)
+        self.redo_stack.clear()
 
     def _undo(self) -> None:
         if self.undo_stack:
+            self.redo_stack.append(self.canvas_surface.copy())
             self.canvas_surface = self.undo_stack.pop()
+
+    def _redo(self) -> None:
+        if self.redo_stack:
+            self.undo_stack.append(self.canvas_surface.copy())
+            self.canvas_surface = self.redo_stack.pop()
 
     def _current_draw_color(self) -> Color:
         if self.current_tool == "eraser":
@@ -484,6 +515,9 @@ class PaintApp:
         if self.action_buttons["undo"].hit(pos):
             self._undo()
             return False
+        if self.action_buttons["redo"].hit(pos):
+            self._redo()
+            return False
         if self.action_buttons["new"].hit(pos):
             self._archive_current()
             self._reset_canvas()
@@ -501,7 +535,7 @@ class PaintApp:
         if self.current_stroke.tool == "fountain":
             # Densify fountain updates to avoid visible segment artifacts.
             distance = max(1.0, pygame.math.Vector2(local_pos).distance_to(last_point))
-            steps = max(1, int(distance / 1.5))
+            steps = max(1, int(distance / FOUNTAIN_DENSITY))
             prev = last_point
             width = self.current_stroke.fountain_width
             for idx in range(1, steps + 1):
@@ -513,7 +547,7 @@ class PaintApp:
                 target_width = float(_fountain_width_for_direction(self.current_stroke.size, prev, next_point))
                 if width <= 0:
                     width = target_width
-                smoothed_width = width + (target_width - width) * 0.35
+                smoothed_width = width + (target_width - width) * FOUNTAIN_SMOOTHING
                 _draw_fountain_segment(
                     self.canvas_surface,
                     self.current_stroke.color,
@@ -560,12 +594,26 @@ class PaintApp:
             archive_path = self.paint_dir / f"{timestamp}_{counter}.png"
             counter += 1
         _save_surface_atomic(self.canvas_surface, archive_path)
+        self._enforce_archive_limit()
         self._update_thumbnail_button()
+
+    def _enforce_archive_limit(self) -> None:
+        max_archives = int(self.config.get("paint", {}).get("max_archives", MAX_ARCHIVES))
+        archives = _list_archives(self.paint_dir)
+        # Exclude latest.png from the count
+        archives = [p for p in archives if p.name != "latest.png"]
+        while len(archives) > max_archives:
+            oldest = archives.pop()  # list is sorted newest-first
+            try:
+                oldest.unlink()
+            except OSError:
+                break
 
     def _reset_canvas(self) -> None:
         self.base_surface.fill((255, 255, 255))
         self.canvas_surface = self.base_surface.copy()
         self.undo_stack = []
+        self.redo_stack = []
 
     def _open_recall(self) -> None:
         # Persist current canvas before showing recall so latest work appears immediately.
@@ -616,6 +664,7 @@ class PaintApp:
             return
         self.canvas_surface = loaded.copy()
         self.undo_stack = []
+        self.redo_stack = []
         # Always promote selected archive into latest working copy.
         self._autosave_latest()
         self.last_autosave = time.monotonic()
@@ -655,7 +704,7 @@ class PaintApp:
             pos = self._event_pos(event)
             if (
                 pos is not None
-                and self.recall_drag_distance < 10
+                and self.recall_drag_distance < DRAG_THRESHOLD
                 and self.recall_pressed_index is not None
                 and self._recall_index_at_pos(pos) == self.recall_pressed_index
             ):
@@ -665,11 +714,11 @@ class PaintApp:
             self.recall_drag_distance = 0
         if event.type == pygame.MOUSEWHEEL:
             if self.recall_strip_rect.collidepoint(pygame.mouse.get_pos()):
-                self._scroll_recall(-event.y * 40)
+                self._scroll_recall(-event.y * SCROLL_STEP)
         if event.type == pygame.MOUSEBUTTONDOWN and getattr(event, "button", None) in {4, 5}:
             pos = self._event_pos(event)
             if pos and self.recall_strip_rect.collidepoint(pos):
-                self._scroll_recall(-40 if event.button == 4 else 40)
+                self._scroll_recall(-SCROLL_STEP if event.button == 4 else SCROLL_STEP)
         if event.type == pygame.MOUSEMOTION and self.recall_strip_drag_last_y is not None:
             dy = event.pos[1] - self.recall_strip_drag_last_y
             self._scroll_recall(-dy)
@@ -685,9 +734,7 @@ class PaintApp:
             self.recall_strip_drag_last_y = current_y
 
     def _draw_recall_overlay(self) -> None:
-        overlay = pygame.Surface(self.screen_rect.size, pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 140))
-        self.screen.blit(overlay, (0, 0))
+        self.screen.blit(self._recall_overlay, (0, 0))
         pygame.draw.rect(self.screen, (230, 230, 230), self.recall_strip_rect)
         for idx, item in enumerate(self.recall_items):
             rect = self._recall_item_rect(idx)
@@ -722,7 +769,7 @@ class PaintApp:
             if key == "home":
                 draw_home_button(self.screen, button.rect)
             else:
-                if key in {"new", "undo"}:
+                if key in {"new", "undo", "redo"}:
                     button.draw(self.screen, self.font)
                 elif key == "recall" and button.image is None:
                     button.draw(self.screen, self.font)

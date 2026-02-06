@@ -9,6 +9,13 @@ from typing import Deque, Dict, List, Optional, Tuple
 
 import pygame
 
+FINGERMOTION = getattr(pygame, "FINGERMOTION", None)
+
+# --- Tuning constants ---
+DRAG_THRESHOLD = 10
+SCROLL_STEP = 40
+UNDO_MAX_DEPTH = 20
+
 from toddlerbox.config import load_config
 from toddlerbox.paths import ensure_directories, get_data_root
 from toddlerbox.ui.common import (
@@ -247,6 +254,10 @@ class TypingApp:
         self.recall_drag_last_y: Optional[int] = None
         self.recall_pressed_index: Optional[int] = None
         self.recall_drag_distance = 0
+        self.pointer_down = False
+
+        self._recall_overlay = pygame.Surface(self.screen_rect.size, pygame.SRCALPHA)
+        self._recall_overlay.fill((0, 0, 0, 140))
 
         self.text_pad_x = 24
         self.text_pad_top = 20
@@ -289,7 +300,7 @@ class TypingApp:
 
     def _push_undo(self, op: EditOp) -> None:
         self.undo_stack.append(op)
-        if len(self.undo_stack) > 20:
+        if len(self.undo_stack) > UNDO_MAX_DEPTH:
             self.undo_stack.pop(0)
 
     def _insert_newline_at(self, row: int, col: int) -> None:
@@ -415,8 +426,11 @@ class TypingApp:
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "rich_lines": _serialize_rich_lines(self.rich_lines),
         }
-        with self.sessions_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        try:
+            with self.sessions_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
 
     def _current_text(self) -> str:
         return "\n".join(self.text_lines).rstrip()
@@ -608,11 +622,15 @@ class TypingApp:
             self.recall_open = False
             return
         if is_primary_pointer_event(event, is_down=True):
+            if self.pointer_down:
+                return
             pos = pointer_event_pos(event, self.screen_rect)
             if pos is None:
                 return
+            self.pointer_down = True
             if not self.recall_strip_rect.collidepoint(pos):
                 self.recall_open = False
+                self.pointer_down = False
                 self.recall_drag_last_y = None
                 self.recall_pressed_index = None
                 self.recall_drag_distance = 0
@@ -621,19 +639,19 @@ class TypingApp:
             self.recall_pressed_index = self._recall_index_at_pos(pos)
             self.recall_drag_distance = 0
             return
-        if event.type == pygame.MOUSEMOTION and self.recall_drag_last_y is not None:
-            dy = event.pos[1] - self.recall_drag_last_y
-            self._scroll_recall(-dy)
-            self.recall_drag_distance += abs(dy)
-            self.recall_drag_last_y = event.pos[1]
-            return
         if is_primary_pointer_event(event, is_down=False):
+            if not self.pointer_down:
+                return
+            self.pointer_down = False
             pos = pointer_event_pos(event, self.screen_rect)
             if pos is None:
+                self.recall_drag_last_y = None
+                self.recall_pressed_index = None
+                self.recall_drag_distance = 0
                 return
             if (
                 self.recall_pressed_index is not None
-                and self.recall_drag_distance < 10
+                and self.recall_drag_distance < DRAG_THRESHOLD
                 and self._recall_index_at_pos(pos) == self.recall_pressed_index
             ):
                 self._apply_recall(self.recall_pressed_index)
@@ -641,18 +659,31 @@ class TypingApp:
             self.recall_pressed_index = None
             self.recall_drag_distance = 0
             return
+        if event.type == pygame.MOUSEMOTION and self.recall_drag_last_y is not None:
+            dy = event.pos[1] - self.recall_drag_last_y
+            self._scroll_recall(-dy)
+            self.recall_drag_distance += abs(dy)
+            self.recall_drag_last_y = event.pos[1]
+            return
+        if FINGERMOTION is not None and event.type == FINGERMOTION and self.pointer_down:
+            current_y = int(event.y * self.screen_rect.height)
+            if self.recall_drag_last_y is None:
+                self.recall_drag_last_y = current_y
+            dy = current_y - self.recall_drag_last_y
+            self._scroll_recall(-dy)
+            self.recall_drag_distance += abs(dy)
+            self.recall_drag_last_y = current_y
+            return
         if event.type == pygame.MOUSEWHEEL:
             if self.recall_strip_rect.collidepoint(pygame.mouse.get_pos()):
-                self._scroll_recall(-event.y * 40)
+                self._scroll_recall(-event.y * SCROLL_STEP)
             return
         if event.type == pygame.MOUSEBUTTONDOWN and event.button in {4, 5}:
             if self.recall_strip_rect.collidepoint(event.pos):
-                self._scroll_recall(-40 if event.button == 4 else 40)
+                self._scroll_recall(-SCROLL_STEP if event.button == 4 else SCROLL_STEP)
 
     def _draw_recall_overlay(self) -> None:
-        overlay = pygame.Surface(self.screen_rect.size, pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 140))
-        self.screen.blit(overlay, (0, 0))
+        self.screen.blit(self._recall_overlay, (0, 0))
         pygame.draw.rect(self.screen, (230, 230, 230), self.recall_strip_rect)
 
         preview_x_pad = 10
