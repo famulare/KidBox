@@ -132,7 +132,12 @@ def is_escape_chord(event: pygame.event.Event) -> bool:
     mods = event.mod
     has_ctrl = bool(mods & pygame.KMOD_CTRL)
     has_alt = bool(mods & pygame.KMOD_ALT)
-    disallowed = pygame.KMOD_SHIFT | pygame.KMOD_META | pygame.KMOD_GUI | pygame.KMOD_ALTGR
+    disallowed = (
+        pygame.KMOD_SHIFT
+        | pygame.KMOD_META
+        | pygame.KMOD_GUI
+        | getattr(pygame, "KMOD_ALTGR", 0)
+    )
     return has_ctrl and has_alt and (mods & disallowed) == 0
 
 
