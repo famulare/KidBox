@@ -224,15 +224,25 @@ def _load_canvas_image(path: Path, size: Tuple[int, int]) -> Optional[pygame.Sur
 
 
 class PaintApp:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        screen: Optional[pygame.Surface] = None,
+        screen_rect: Optional[pygame.Rect] = None,
+        clock: Optional[pygame.time.Clock] = None,
+    ) -> None:
         self.config = load_config()
         self.data_root = get_data_root(self.config)
         dirs = ensure_directories(self.data_root)
         self.paint_dir = dirs["paint"]
         _rollover_latest_snapshot(self.paint_dir)
 
-        self.screen, self.screen_rect = create_fullscreen_window()
-        self.clock = pygame.time.Clock()
+        if screen is None:
+            self.screen, self.screen_rect = create_fullscreen_window()
+        else:
+            self.screen = screen
+            self.screen_rect = screen_rect or screen.get_rect()
+        self.clock = clock or pygame.time.Clock()
 
         self.margin = 16
         self.menu_pad = 10
@@ -724,7 +734,7 @@ class PaintApp:
 
         pygame.display.flip()
 
-    def run(self) -> None:
+    def run(self, *, quit_on_exit: bool = True) -> None:
         running = True
         self._render()
         while running:
@@ -765,14 +775,19 @@ class PaintApp:
             self._render()
             self.clock.tick(60)
 
-        pygame.quit()
+        if quit_on_exit:
+            pygame.quit()
 
 
 def main() -> None:
     try:
-        PaintApp().run()
+        PaintApp().run(quit_on_exit=True)
     except Exception:
         pygame.quit()
+
+
+def run_embedded(screen: pygame.Surface, screen_rect: pygame.Rect, clock: pygame.time.Clock) -> None:
+    PaintApp(screen=screen, screen_rect=screen_rect, clock=clock).run(quit_on_exit=False)
 
 
 if __name__ == "__main__":

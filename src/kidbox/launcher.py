@@ -6,11 +6,14 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import pygame
 
 from kidbox.config import load_config
+from kidbox.paint.app import run_embedded as run_paint_embedded
+from kidbox.photos.app import run_embedded as run_photos_embedded
+from kidbox.typing.app import run_embedded as run_typing_embedded
 from kidbox.ui.common import (
     Button,
     create_fullscreen_window,
@@ -29,6 +32,13 @@ class LauncherApp:
     name: str
     icon_path: str
     command: List[str]
+
+
+_EMBEDDED_RUNNERS: Dict[str, Callable[[pygame.Surface, pygame.Rect, pygame.time.Clock], None]] = {
+    "kidbox.paint": run_paint_embedded,
+    "kidbox.photos": run_photos_embedded,
+    "kidbox.typing": run_typing_embedded,
+}
 
 
 def _parse_command(cmd: Any) -> List[str]:
@@ -64,6 +74,16 @@ def _resolve_command(command: List[str]) -> List[str]:
     return command
 
 
+def _embedded_runner_for_command(command: List[str]) -> Optional[Callable[[pygame.Surface, pygame.Rect, pygame.time.Clock], None]]:
+    if "-m" not in command:
+        return None
+    idx = command.index("-m")
+    if idx + 1 >= len(command):
+        return None
+    module_name = command[idx + 1]
+    return _EMBEDDED_RUNNERS.get(module_name)
+
+
 def _build_buttons(apps: List[LauncherApp], screen_rect: pygame.Rect) -> List[Button]:
     icon_size = max(120, int(min(screen_rect.width, screen_rect.height) * 0.18))
     gap = int(icon_size * 0.3)
@@ -86,15 +106,29 @@ def _build_buttons(apps: List[LauncherApp], screen_rect: pygame.Rect) -> List[Bu
     return buttons
 
 
-def _launch_app(app: LauncherApp) -> None:
+def _launch_app(app: LauncherApp, screen: pygame.Surface, screen_rect: pygame.Rect, clock: pygame.time.Clock) -> bool:
+    runner = _embedded_runner_for_command(app.command)
+    if runner is not None:
+        try:
+            runner(screen, screen_rect, clock)
+        except Exception:
+            return False
+        return False
+
     command = _resolve_command(app.command)
     if not command:
-        return
+        return False
     try:
-        child = subprocess.Popen(command, env=set_env_for_child())
+        child = subprocess.Popen(
+            command,
+            env=set_env_for_child(),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         child.wait()
     except Exception:
-        return
+        return False
+    return True
 
 
 def _restore_launcher_window() -> tuple[pygame.Surface, pygame.Rect]:
@@ -148,9 +182,10 @@ def main() -> None:
                     continue
                 for app, button in zip(apps, buttons):
                     if button.hit(pos):
-                        _launch_app(app)
-                        screen, screen_rect = _restore_launcher_window()
-                        buttons = _build_buttons(apps, screen_rect)
+                        used_subprocess = _launch_app(app, screen, screen_rect, clock)
+                        if used_subprocess:
+                            screen, screen_rect = _restore_launcher_window()
+                            buttons = _build_buttons(apps, screen_rect)
                         pointer_events = [pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP]
                         finger_down = getattr(pygame, "FINGERDOWN", None)
                         finger_up = getattr(pygame, "FINGERUP", None)

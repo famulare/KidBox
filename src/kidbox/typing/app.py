@@ -131,15 +131,25 @@ def _load_recent_sessions(path: Path, *, limit: int = 200) -> List[RecallSession
 
 
 class TypingApp:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        screen: Optional[pygame.Surface] = None,
+        screen_rect: Optional[pygame.Rect] = None,
+        clock: Optional[pygame.time.Clock] = None,
+    ) -> None:
         self.config = load_config()
         self.data_root = get_data_root(self.config)
         dirs = ensure_directories(self.data_root)
         self.typing_dir = dirs["typing"]
         self.sessions_path = self.typing_dir / "sessions.jsonl"
 
-        self.screen, self.screen_rect = create_fullscreen_window()
-        self.clock = pygame.time.Clock()
+        if screen is None:
+            self.screen, self.screen_rect = create_fullscreen_window()
+        else:
+            self.screen = screen
+            self.screen_rect = screen_rect or screen.get_rect()
+        self.clock = clock or pygame.time.Clock()
 
         self.ui_font = pygame.font.SysFont("sans", 20)
         self.default_text_size = 25
@@ -698,7 +708,7 @@ class TypingApp:
 
         pygame.display.flip()
 
-    def run(self) -> None:
+    def run(self, *, quit_on_exit: bool = True) -> None:
         running = True
         self._render()
         while running:
@@ -785,14 +795,19 @@ class TypingApp:
             self._render()
             self.clock.tick(60)
 
-        pygame.quit()
+        if quit_on_exit:
+            pygame.quit()
 
 
 def main() -> None:
     try:
-        TypingApp().run()
+        TypingApp().run(quit_on_exit=True)
     except Exception:
         pygame.quit()
+
+
+def run_embedded(screen: pygame.Surface, screen_rect: pygame.Rect, clock: pygame.time.Clock) -> None:
+    TypingApp(screen=screen, screen_rect=screen_rect, clock=clock).run(quit_on_exit=False)
 
 
 if __name__ == "__main__":

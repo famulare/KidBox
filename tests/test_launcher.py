@@ -1,4 +1,4 @@
-from kidbox.launcher import _resolve_command, _restore_launcher_window
+from kidbox.launcher import _embedded_runner_for_command, _resolve_command, _restore_launcher_window
 
 
 def test_resolve_command_uses_active_interpreter_for_python(monkeypatch):
@@ -39,3 +39,13 @@ def test_restore_launcher_window_recreates_when_surface_missing(monkeypatch):
     surface, rect = _restore_launcher_window()
     assert surface == "new-surface"
     assert rect == "new-rect"
+
+
+def test_embedded_runner_for_command_matches_builtin_module():
+    runner = _embedded_runner_for_command(["python", "-m", "kidbox.paint"])
+    assert runner is not None
+
+
+def test_embedded_runner_for_command_ignores_non_builtin_module():
+    runner = _embedded_runner_for_command(["python", "-m", "external.tool"])
+    assert runner is None

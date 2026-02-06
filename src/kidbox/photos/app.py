@@ -41,7 +41,13 @@ def _scale_to_fit(surface: pygame.Surface, size: Tuple[int, int]) -> pygame.Surf
 
 
 class PhotosApp:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        screen: Optional[pygame.Surface] = None,
+        screen_rect: Optional[pygame.Rect] = None,
+        clock: Optional[pygame.time.Clock] = None,
+    ) -> None:
         self.config = load_config()
         self.data_root = get_data_root(self.config)
         dirs = ensure_directories(self.data_root)
@@ -49,8 +55,12 @@ class PhotosApp:
         self.library_dir = self.photos_dir / "library"
         self.thumb_dir = self.photos_dir / "thumbs"
 
-        self.screen, self.screen_rect = create_fullscreen_window()
-        self.clock = pygame.time.Clock()
+        if screen is None:
+            self.screen, self.screen_rect = create_fullscreen_window()
+        else:
+            self.screen = screen
+            self.screen_rect = screen_rect or screen.get_rect()
+        self.clock = clock or pygame.time.Clock()
 
         base_strip_width = max(160, int(self.screen_rect.width * 0.25))
         self.strip_width = max(112, int(base_strip_width * 0.7))
@@ -184,7 +194,7 @@ class PhotosApp:
 
         pygame.display.flip()
 
-    def run(self) -> None:
+    def run(self, *, quit_on_exit: bool = True) -> None:
         running = True
         self._render()
         while running:
@@ -251,14 +261,19 @@ class PhotosApp:
             self._render()
             self.clock.tick(60)
 
-        pygame.quit()
+        if quit_on_exit:
+            pygame.quit()
 
 
 def main() -> None:
     try:
-        PhotosApp().run()
+        PhotosApp().run(quit_on_exit=True)
     except Exception:
         pygame.quit()
+
+
+def run_embedded(screen: pygame.Surface, screen_rect: pygame.Rect, clock: pygame.time.Clock) -> None:
+    PhotosApp(screen=screen, screen_rect=screen_rect, clock=clock).run(quit_on_exit=False)
 
 
 if __name__ == "__main__":
