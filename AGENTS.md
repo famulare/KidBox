@@ -3,6 +3,7 @@
 ## Project Structure & Module Organization
 - `src/toddlerbox/` contains the launcher and apps (`launcher.py`, `paint/`, `photos/`, `typing/`).
 - `src/toddlerbox/ui/` contains shared UI helpers and widgets.
+- `src/toddlerbox/runtime/` contains runtime safety/logging helpers.
 - `tests/` holds pytest unit tests.
 - `assets/` is reserved for launcher icons and other static files.
 - `config.yaml` provides dev defaults (paths, palette, app commands).
@@ -17,6 +18,7 @@ Use `uv` with the local `.venv` and a writable cache directory.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.photos` — run photos.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.typing` — run typing.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` — run unit tests.
+- `./scripts/run-stable.sh` — run launcher with automatic restart/backoff for kiosk-style stability checks.
 
 ## Coding Style & Naming Conventions
 - Python: 4-space indentation; keep modules small and focused.
@@ -36,6 +38,7 @@ Use `uv` with the local `.venv` and a writable cache directory.
 - Do not commit secrets or local env files (`.venv/`, `.env`).
 - Dev config uses `config.yaml` at repo root; production config should live at `/opt/toddlerbox/config.yaml`.
 - Data writes default to `data_root` from config; dev defaults to `./data`.
+- Runtime logs are written under `data_root/logs/` (`toddlerbox.log` with `.1` rollover).
 
 ## Agent-Specific Instructions
 - Keep UI minimal and fullscreen; avoid dialogs and OS UI elements.
