@@ -207,24 +207,40 @@ def _bucket_fill(surface: pygame.Surface, pos: Point, color: Color) -> None:
         return
     target_mapped = surface.map_rgb(target)
     replacement = surface.map_rgb(color)
-    pixels = pygame.PixelArray(surface)
-    visited: set = set()
-    stack = [(x, y)]
-    while stack:
-        cx, cy = stack.pop()
-        if cx < 0 or cy < 0 or cx >= width or cy >= height:
-            continue
-        if (cx, cy) in visited:
-            continue
-        visited.add((cx, cy))
-        if pixels[cx, cy] != target_mapped:
-            continue
-        pixels[cx, cy] = replacement
-        stack.append((cx + 1, cy))
-        stack.append((cx - 1, cy))
-        stack.append((cx, cy + 1))
-        stack.append((cx, cy - 1))
-    del pixels
+    pixels: Optional[pygame.PixelArray] = None
+    try:
+        pixels = pygame.PixelArray(surface)
+        lx = x
+        while lx - 1 >= 0 and pixels[lx - 1, y] == target_mapped:
+            lx -= 1
+        rx = x
+        while rx + 1 < width and pixels[rx + 1, y] == target_mapped:
+            rx += 1
+        stack = [(lx, rx, y)]
+        while stack:
+            lx, rx, sy = stack.pop()
+            for fx in range(lx, rx + 1):
+                pixels[fx, sy] = replacement
+
+            for ny in (sy - 1, sy + 1):
+                if ny < 0 or ny >= height:
+                    continue
+                nx = lx
+                while nx <= rx:
+                    if pixels[nx, ny] != target_mapped:
+                        nx += 1
+                        continue
+                    span_l = nx
+                    while span_l - 1 >= 0 and pixels[span_l - 1, ny] == target_mapped:
+                        span_l -= 1
+                    span_r = nx
+                    while span_r + 1 < width and pixels[span_r + 1, ny] == target_mapped:
+                        span_r += 1
+                    stack.append((span_l, span_r, ny))
+                    nx = span_r + 1
+    finally:
+        if pixels is not None:
+            del pixels
 
 
 def _load_thumbnail(path: Path, size: Tuple[int, int]) -> Optional[pygame.Surface]:
