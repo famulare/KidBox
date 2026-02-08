@@ -32,18 +32,42 @@ if [[ "${1:-}" != "" && "${1:-}" != "--install" ]]; then
 fi
 
 if [[ $EUID -ne 0 ]]; then
-  exec sudo --preserve-env=PATH "$0" ${INSTALL:+--install}
+  if [[ "$INSTALL" -eq 1 ]]; then
+    exec sudo --preserve-env=PATH "$0" --install
+  fi
+  exec sudo --preserve-env=PATH "$0"
 fi
+
+install_keyd_from_source() {
+  apt update
+  apt install -y git build-essential pkg-config libevdev-dev
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' RETURN
+  git clone --depth 1 https://github.com/rvaiya/keyd.git "$tmp_dir/keyd"
+  make -C "$tmp_dir/keyd"
+  make -C "$tmp_dir/keyd" install
+}
 
 if ! command -v keyd >/dev/null 2>&1; then
   if [[ "$INSTALL" -eq 1 ]]; then
-    apt update
-    apt install -y keyd
+    if apt-cache show keyd >/dev/null 2>&1; then
+      apt update
+      apt install -y keyd
+    else
+      echo "keyd package not found in apt sources; installing from source..." >&2
+      install_keyd_from_source
+    fi
   else
     echo "keyd is not installed. Re-run with --install or install it manually:" >&2
     echo "  sudo apt install keyd" >&2
     exit 1
   fi
+fi
+
+if ! command -v keyd >/dev/null 2>&1; then
+  echo "keyd installation failed; keyd executable not found in PATH." >&2
+  exit 1
 fi
 
 install -d -m 0755 /etc/keyd
