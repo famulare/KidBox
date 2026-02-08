@@ -51,7 +51,7 @@ It reflects implementation as it exists today, not aspirational scope.
   - Eraser
   - Bucket fill
 - Sizes: 3 presets (scaled by display)
-- Palette: configurable; current config provides 13 colors
+- Palette: configurable; current config provides 14 colors
 - Undo stack depth: 10
 - Actions:
   - `New`: archive current canvas, clear canvas, clear undo

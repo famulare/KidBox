@@ -290,9 +290,9 @@ class PaintApp:
         self.palette = [tuple(color) for color in self.config.get("paint", {}).get("palette", [])]
         self.current_color: Color = self.palette[0] if self.palette else (0, 0, 0)
 
-        self.current_tool = "round"
+        self.current_tool = "fountain"
         self.size_values = self._scaled_size_values()
-        self.current_size = self.size_values[0]
+        self.current_size = self.size_values[1] if len(self.size_values) > 1 else self.size_values[0]
         self.undo_stack: List[pygame.Surface] = []
         self.redo_stack: List[pygame.Surface] = []
         self.current_stroke: Optional[Stroke] = None
@@ -378,10 +378,10 @@ class PaintApp:
             )
             self.tool_buttons[tool] = Button(rect=rect, image=icon, fill=self.menu_bg)
 
-        size_height = max(6, tool_size // 2)
         size_gap = max(2, gap // 4)
-        size_width = max(1, int(inner_w * 0.6))
-        size_left = left + (inner_w - size_width) // 2
+        size_width = max(1, (inner_w - 2 * size_gap) // 3)
+        size_height = max(24, int(tool_size * 1.1))
+        size_left = left
         size_top = tool_top + 2 * tool_size + gap
         size_icons = [
             Path(__file__).resolve().parents[3] / "assets" / "icons" / "paint" / "line_thin" / "line_thin_256.png",
@@ -390,24 +390,30 @@ class PaintApp:
         ]
         for idx, (size, icon_path) in enumerate(zip(self.size_values, size_icons)):
             rect = pygame.Rect(
-                size_left,
-                size_top + idx * (size_height + size_gap),
+                size_left + idx * (size_width + size_gap),
+                size_top,
                 size_width,
                 size_height,
             )
             icon = _load_icon(
                 icon_path,
-                (max(1, size_width - icon_pad), max(1, size_height - icon_pad)),
+                (max(1, size_height - icon_pad), max(1, size_width - icon_pad)),
                 preserve_aspect=False,
             )
+            if icon is not None:
+                icon = pygame.transform.rotate(icon, 90)
             self.size_buttons[size] = Button(rect=rect, image=icon, fill=self.menu_bg)
 
-        size_bottom = size_top + 3 * size_height + 2 * size_gap
+        size_bottom = size_top + size_height
 
         action_h = self.font.get_height() + 16
         action_gap = gap
-        recall_h = inner_w
-        bottom_total = recall_h + 2 * action_h + 2 * action_gap
+        recall_new_gap = 2
+        recall_h = min(
+            inner_w,
+            max(1, int(inner_w * (self.canvas_rect.height / self.canvas_rect.width))),
+        )
+        bottom_total = recall_h + 2 * action_h + recall_new_gap + action_gap
         bottom_top = self.controls_rect.bottom - pad - bottom_total
         bottom_left = left
 
@@ -416,7 +422,7 @@ class PaintApp:
 
         new_rect = pygame.Rect(
             bottom_left,
-            recall_rect.bottom + action_gap,
+            recall_rect.bottom + recall_new_gap,
             inner_w,
             action_h,
         )
@@ -439,8 +445,9 @@ class PaintApp:
         )
         self.action_buttons["redo"] = Button(rect=redo_rect, label="Redo", fill=(245, 245, 245))
 
-        palette_top = size_bottom + gap
-        palette_bottom = bottom_top - gap
+        palette_gap = max(4, gap // 2)
+        palette_top = size_bottom + palette_gap + 4
+        palette_bottom = bottom_top - 4
         if palette_bottom < palette_top:
             palette_bottom = palette_top
         palette_rect = pygame.Rect(left, palette_top, inner_w, palette_bottom - palette_top)
@@ -772,9 +779,13 @@ class PaintApp:
                 pygame.draw.rect(self.screen, (200, 60, 60), button.rect, width=3, border_radius=12)
 
         for idx, button in enumerate(self.palette_buttons):
-            button.draw(self.screen)
-            if self.palette[idx] == self.current_color:
+            color = self.palette[idx]
+            if color == self.current_color:
                 pygame.draw.rect(self.screen, (200, 60, 60), button.rect, width=3)
+                inner = button.rect.inflate(-4, -4)
+                pygame.draw.rect(self.screen, color, inner, border_radius=10)
+            else:
+                button.draw(self.screen)
 
         for key, button in self.action_buttons.items():
             if key == "home":
