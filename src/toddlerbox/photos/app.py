@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import json
 from pathlib import Path
+import time
 from typing import List, Optional, Tuple
 
 import pygame
@@ -21,6 +22,7 @@ SCROLL_STEP = 40
 
 from toddlerbox.config import load_config
 from toddlerbox.paths import ensure_directories, get_data_root
+from toddlerbox.runtime import RuntimeLogger, get_runtime_logger
 from toddlerbox.ui.common import (
     Button,
     create_fullscreen_window,
@@ -28,6 +30,9 @@ from toddlerbox.ui.common import (
     is_primary_pointer_event,
     pointer_event_pos,
 )
+
+WINDOW_FOCUS_GAINED = getattr(pygame, "WINDOWFOCUSGAINED", None)
+APP_DID_ENTER_FOREGROUND = getattr(pygame, "APP_DIDENTERFOREGROUND", None)
 
 
 @dataclass
@@ -145,6 +150,7 @@ class PhotosApp:
     ) -> None:
         self.config = load_config()
         self.data_root = get_data_root(self.config)
+        self.logger: RuntimeLogger = get_runtime_logger(self.data_root)
         dirs = ensure_directories(self.data_root)
         self.photos_dir = dirs["photos"]
         self.library_dir = self.photos_dir / "library"
@@ -203,6 +209,23 @@ class PhotosApp:
         self.home_button = Button(rect=pygame.Rect(self.screen_rect.width - 90, 20, 70, 50), fill=(240, 240, 240))
         self.left_arrow = Button(rect=pygame.Rect(self.main_rect.left + 20, self.screen_rect.centery - 30, 50, 60), fill=(245, 245, 245))
         self.right_arrow = Button(rect=pygame.Rect(self.main_rect.right - 70, self.screen_rect.centery - 30, 50, 60), fill=(245, 245, 245))
+
+    def _handle_resume(self, reason: str) -> None:
+        self.logger.info(f"Photos resume handling triggered: {reason}")
+        self.pointer_down = False
+        self.drag_start = None
+        self.drag_delta = (0, 0)
+        self.strip_drag_last_y = None
+        self.strip_pressed_index = None
+        self.strip_drag_distance = 0
+        pointer_events = [pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP]
+        finger_down = getattr(pygame, "FINGERDOWN", None)
+        finger_up = getattr(pygame, "FINGERUP", None)
+        if finger_down is not None:
+            pointer_events.append(finger_down)
+        if finger_up is not None:
+            pointer_events.append(finger_up)
+        pygame.event.clear(pointer_events)
 
     def relaunch(self, screen: pygame.Surface, screen_rect: pygame.Rect, clock: pygame.time.Clock) -> None:
         self.screen = screen
@@ -408,8 +431,16 @@ class PhotosApp:
         self._render()
         last_input_ms = pygame.time.get_ticks()
         last_scroll_ms = last_input_ms
+        last_frame_time = time.monotonic()
         while running:
+            now = time.monotonic()
+            if now - last_frame_time > 2.0:
+                self._handle_resume("frame-time gap")
+            last_frame_time = now
             for event in pygame.event.get():
+                if event.type in {WINDOW_FOCUS_GAINED, APP_DID_ENTER_FOREGROUND}:
+                    self._handle_resume("focus/background event")
+                    continue
                 if event.type in {
                     pygame.MOUSEMOTION,
                     pygame.MOUSEBUTTONDOWN,
@@ -525,6 +556,8 @@ def main() -> None:
     try:
         PhotosApp().run(quit_on_exit=True)
     except Exception:
+        logger = get_runtime_logger(get_data_root(load_config()))
+        logger.exception("Photos app crashed in main()")
         pygame.quit()
 
 

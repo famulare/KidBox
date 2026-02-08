@@ -12,6 +12,7 @@ import pygame
 
 from toddlerbox.config import load_config
 from toddlerbox.paths import ensure_directories, get_data_root
+from toddlerbox.runtime import RuntimeLogger, get_runtime_logger
 from toddlerbox.ui.common import (
     Button,
     create_fullscreen_window,
@@ -25,6 +26,8 @@ Color = Tuple[int, int, int]
 Point = Tuple[int, int]
 
 FINGERMOTION = getattr(pygame, "FINGERMOTION", None)
+WINDOW_FOCUS_GAINED = getattr(pygame, "WINDOWFOCUSGAINED", None)
+APP_DID_ENTER_FOREGROUND = getattr(pygame, "APP_DIDENTERFOREGROUND", None)
 
 # --- Tuning constants ---
 DRAG_THRESHOLD = 10
@@ -33,6 +36,7 @@ FOUNTAIN_SMOOTHING = 0.35
 FOUNTAIN_DENSITY = 1.5
 SCROLL_STEP = 40
 MAX_ARCHIVES = 100
+ICON_CACHE_MAX_ENTRIES = 128
 
 _ICON_CACHE: Dict[Tuple[str, Tuple[int, int], bool], pygame.Surface] = {}
 
@@ -78,8 +82,16 @@ class RecallItem:
 def _save_surface_atomic(surface: pygame.Surface, path: Path) -> None:
     # Keep a .png suffix so pygame writes a PNG-encoded file.
     tmp_path = path.with_name(f".{path.stem}.tmp{path.suffix}")
-    pygame.image.save(surface, str(tmp_path))
-    os.replace(tmp_path, path)
+    try:
+        pygame.image.save(surface, str(tmp_path))
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def _list_archives(paint_dir: Path) -> List[Path]:
@@ -132,6 +144,9 @@ def _load_icon(path: Path, size: Tuple[int, int], *, preserve_aspect: bool = Tru
         image = pygame.transform.smoothscale(image, target)
     else:
         image = pygame.transform.smoothscale(image, (max_w, max_h))
+    if len(_ICON_CACHE) >= ICON_CACHE_MAX_ENTRIES:
+        oldest_key = next(iter(_ICON_CACHE))
+        _ICON_CACHE.pop(oldest_key, None)
     _ICON_CACHE[key] = image
     return image
 
@@ -279,6 +294,7 @@ class PaintApp:
     ) -> None:
         self.config = load_config()
         self.data_root = get_data_root(self.config)
+        self.logger: RuntimeLogger = get_runtime_logger(self.data_root)
         dirs = ensure_directories(self.data_root)
         self.paint_dir = dirs["paint"]
         _rollover_latest_snapshot(self.paint_dir)
@@ -348,6 +364,23 @@ class PaintApp:
         self.pointer_down = False
         self._recall_overlay = pygame.Surface(self.screen_rect.size, pygame.SRCALPHA)
         self._recall_overlay.fill((0, 0, 0, 140))
+
+    def _handle_resume(self, reason: str) -> None:
+        self.logger.info(f"Paint resume handling triggered: {reason}")
+        self.pointer_down = False
+        self.current_stroke = None
+        self.recall_strip_drag_last_y = None
+        self.recall_pressed_index = None
+        self.recall_drag_distance = 0
+        self.last_autosave = time.monotonic()
+        pointer_events = [pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP]
+        finger_down = getattr(pygame, "FINGERDOWN", None)
+        finger_up = getattr(pygame, "FINGERUP", None)
+        if finger_down is not None:
+            pointer_events.append(finger_down)
+        if finger_up is not None:
+            pointer_events.append(finger_up)
+        pygame.event.clear(pointer_events)
 
     def _scaled_size_values(self) -> List[int]:
         base_sizes = [3, 6, 12]
@@ -623,20 +656,30 @@ class PaintApp:
             icon = _load_icon(self.recall_demo_path, icon_size)
         self.action_buttons["recall"].image = icon
 
-    def _autosave_latest(self) -> None:
+    def _autosave_latest(self) -> bool:
         latest_path = self.paint_dir / "latest.png"
-        _save_surface_atomic(self.canvas_surface, latest_path)
+        try:
+            _save_surface_atomic(self.canvas_surface, latest_path)
+        except Exception:
+            self.logger.exception("Paint autosave failed")
+            return False
+        return True
 
-    def _archive_current(self) -> None:
+    def _archive_current(self) -> bool:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
         archive_path = self.paint_dir / f"{timestamp}.png"
         counter = 1
         while archive_path.exists():
             archive_path = self.paint_dir / f"{timestamp}_{counter}.png"
             counter += 1
-        _save_surface_atomic(self.canvas_surface, archive_path)
+        try:
+            _save_surface_atomic(self.canvas_surface, archive_path)
+        except Exception:
+            self.logger.exception("Paint archive write failed")
+            return False
         self._enforce_archive_limit()
         self._update_thumbnail_button()
+        return True
 
     def _enforce_archive_limit(self) -> None:
         max_archives = _coerce_archive_limit(
@@ -832,8 +875,16 @@ class PaintApp:
     def run(self, *, quit_on_exit: bool = True) -> None:
         running = True
         self._render()
+        last_frame_time = time.monotonic()
         while running:
+            now = time.monotonic()
+            if now - last_frame_time > 2.0:
+                self._handle_resume("frame-time gap")
+            last_frame_time = now
             for event in pygame.event.get():
+                if event.type in {WINDOW_FOCUS_GAINED, APP_DID_ENTER_FOREGROUND}:
+                    self._handle_resume("focus/background event")
+                    continue
                 if event.type == pygame.QUIT:
                     running = False
                 if self.recall_open:
@@ -878,6 +929,8 @@ def main() -> None:
     try:
         PaintApp().run(quit_on_exit=True)
     except Exception:
+        logger = get_runtime_logger(get_data_root(load_config()))
+        logger.exception("Paint app crashed in main()")
         pygame.quit()
 
 

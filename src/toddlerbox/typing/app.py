@@ -5,6 +5,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import time
 from typing import Deque, Dict, List, Optional, Tuple
 
 import pygame
@@ -18,6 +19,7 @@ UNDO_MAX_DEPTH = 20
 
 from toddlerbox.config import load_config
 from toddlerbox.paths import ensure_directories, get_data_root
+from toddlerbox.runtime import RuntimeLogger, get_runtime_logger
 from toddlerbox.ui.common import (
     Button,
     create_fullscreen_window,
@@ -25,6 +27,9 @@ from toddlerbox.ui.common import (
     is_primary_pointer_event,
     pointer_event_pos,
 )
+
+WINDOW_FOCUS_GAINED = getattr(pygame, "WINDOWFOCUSGAINED", None)
+APP_DID_ENTER_FOREGROUND = getattr(pygame, "APP_DIDENTERFOREGROUND", None)
 
 
 @dataclass
@@ -214,6 +219,7 @@ class TypingApp:
     ) -> None:
         self.config = load_config()
         self.data_root = get_data_root(self.config)
+        self.logger: RuntimeLogger = get_runtime_logger(self.data_root)
         dirs = ensure_directories(self.data_root)
         self.typing_dir = dirs["typing"]
         self.sessions_path = self.typing_dir / "sessions.jsonl"
@@ -334,6 +340,21 @@ class TypingApp:
         self.text_pad_top = 20
         self.line_gap = 6
         self.recall_button.image = self._build_recall_button_thumbnail()
+
+    def _handle_resume(self, reason: str) -> None:
+        self.logger.info(f"Typing resume handling triggered: {reason}")
+        self.pointer_down = False
+        self.recall_drag_last_y = None
+        self.recall_pressed_index = None
+        self.recall_drag_distance = 0
+        pointer_events = [pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP]
+        finger_down = getattr(pygame, "FINGERDOWN", None)
+        finger_up = getattr(pygame, "FINGERUP", None)
+        if finger_down is not None:
+            pointer_events.append(finger_down)
+        if finger_up is not None:
+            pointer_events.append(finger_up)
+        pygame.event.clear(pointer_events)
 
     def _get_font(self, size: int, style: str) -> pygame.font.Font:
         key = (size, style)
@@ -506,7 +527,7 @@ class TypingApp:
             with self.sessions_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(record, ensure_ascii=False) + "\n")
         except OSError:
-            pass
+            self.logger.warning("Typing session archive write failed")
 
     def _current_text(self) -> str:
         return "\n".join(self.text_lines).rstrip()
@@ -1028,8 +1049,16 @@ class TypingApp:
     def run(self, *, quit_on_exit: bool = True) -> None:
         running = True
         self._render()
+        last_frame_time = time.monotonic()
         while running:
+            now = time.monotonic()
+            if now - last_frame_time > 2.0:
+                self._handle_resume("frame-time gap")
+            last_frame_time = now
             for event in pygame.event.get():
+                if event.type in {WINDOW_FOCUS_GAINED, APP_DID_ENTER_FOREGROUND}:
+                    self._handle_resume("focus/background event")
+                    continue
                 if event.type == pygame.QUIT:
                     running = False
                 if self.recall_open:
@@ -1120,6 +1149,8 @@ def main() -> None:
     try:
         TypingApp().run(quit_on_exit=True)
     except Exception:
+        logger = get_runtime_logger(get_data_root(load_config()))
+        logger.exception("Typing app crashed in main()")
         pygame.quit()
 
 

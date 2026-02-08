@@ -8,6 +8,7 @@ from toddlerbox.paint.app import _fountain_width_for_direction
 from toddlerbox.paint.app import _load_canvas_image
 from toddlerbox.paint.app import _list_archives
 from toddlerbox.paint.app import _rollover_latest_snapshot
+from toddlerbox.paint.app import _save_surface_atomic
 from toddlerbox.ui.common import is_primary_pointer_event
 
 
@@ -123,3 +124,21 @@ def test_load_canvas_image_returns_none_on_image_error(monkeypatch, tmp_path):
 
     monkeypatch.setattr(pygame.image, "load", _raise)
     assert _load_canvas_image(path, (64, 64)) is None
+
+
+def test_save_surface_atomic_cleans_tmp_file_on_failure(monkeypatch, tmp_path):
+    surface = pygame.Surface((4, 4))
+    path = tmp_path / "latest.png"
+    tmp_pathname = tmp_path / ".latest.tmp.png"
+    tmp_pathname.write_bytes(b"stale")
+
+    def _raise(*_args, **_kwargs):
+        raise pygame.error("save failed")
+
+    monkeypatch.setattr(pygame.image, "save", _raise)
+    try:
+        _save_surface_atomic(surface, path)
+    except pygame.error:
+        pass
+
+    assert not tmp_pathname.exists()

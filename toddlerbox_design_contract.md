@@ -165,6 +165,7 @@ data_root/
 
 ## 7. Error handling
 
-- App `main()` wrappers swallow exceptions and call `pygame.quit()` in standalone mode
-- Embedded launcher path catches app exceptions and returns to launcher
+- App `main()` wrappers catch exceptions, write diagnostic logs under `data_root/logs/`, and call `pygame.quit()` in standalone mode
+- Embedded launcher path catches app exceptions, logs them, and returns to launcher
 - Child-facing UIs do not show error dialogs
+- Resume from sleep/focus changes clears stale pointer-drag state before normal interaction resumes

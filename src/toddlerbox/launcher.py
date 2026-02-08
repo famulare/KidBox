@@ -11,8 +11,10 @@ from typing import Any, Callable, Dict, List, Optional
 import pygame
 
 from toddlerbox.config import load_config
+from toddlerbox.paths import get_data_root
 from toddlerbox.paint.app import run_embedded as run_paint_embedded
 from toddlerbox.photos.app import PhotosApp, run_embedded as run_photos_embedded
+from toddlerbox.runtime import RuntimeLogger, get_runtime_logger
 from toddlerbox.typing.app import run_embedded as run_typing_embedded
 from toddlerbox.ui.common import (
     Button,
@@ -25,6 +27,9 @@ from toddlerbox.ui.common import (
     pointer_event_pos,
     set_env_for_child,
 )
+
+WINDOW_FOCUS_GAINED = getattr(pygame, "WINDOWFOCUSGAINED", None)
+APP_DID_ENTER_FOREGROUND = getattr(pygame, "APP_DIDENTERFOREGROUND", None)
 
 
 @dataclass
@@ -109,6 +114,7 @@ def _launch_app(
     screen: pygame.Surface,
     screen_rect: pygame.Rect,
     clock: pygame.time.Clock,
+    logger: RuntimeLogger,
     *,
     photos_app: Optional[PhotosApp] = None,
 ) -> tuple[bool, Optional[PhotosApp]]:
@@ -117,7 +123,7 @@ def _launch_app(
         try:
             photos_app = run_photos_embedded(screen, screen_rect, clock, app=photos_app)
         except Exception:
-            pass
+            logger.exception("Photos app crashed in embedded mode")
         return False, photos_app
 
     runner = _EMBEDDED_RUNNERS.get(module_name) if module_name else None
@@ -125,6 +131,7 @@ def _launch_app(
         try:
             runner(screen, screen_rect, clock)
         except Exception:
+            logger.exception(f"Embedded app crashed: {module_name}")
             return False, photos_app
         return False, photos_app
 
@@ -140,8 +147,24 @@ def _launch_app(
         )
         child.wait()
     except Exception:
+        logger.exception(f"Subprocess app launch failed: {' '.join(command)}")
         return False, photos_app
     return True, photos_app
+
+
+def _pointer_event_types() -> list[int]:
+    pointer_events = [pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP]
+    finger_down = getattr(pygame, "FINGERDOWN", None)
+    finger_up = getattr(pygame, "FINGERUP", None)
+    if finger_down is not None:
+        pointer_events.append(finger_down)
+    if finger_up is not None:
+        pointer_events.append(finger_up)
+    return pointer_events
+
+
+def _is_resume_event(event: pygame.event.Event) -> bool:
+    return event.type in {WINDOW_FOCUS_GAINED, APP_DID_ENTER_FOREGROUND}
 
 
 def _restore_launcher_window() -> tuple[pygame.Surface, pygame.Rect]:
@@ -168,6 +191,7 @@ def _draw_launcher_frame(
 
 def main() -> None:
     config = load_config()
+    logger = get_runtime_logger(get_data_root(config))
     apps = _load_apps(config)
     screen, screen_rect = create_fullscreen_window()
     clock = pygame.time.Clock()
@@ -179,14 +203,30 @@ def main() -> None:
     prewarm_batch = int(config.get("launcher", {}).get("photos_prewarm_batch", 2))
     photos_app: Optional[PhotosApp] = None
     if prewarm_enabled:
-        photos_app = PhotosApp(screen=screen, screen_rect=screen_rect, clock=clock)
+        try:
+            photos_app = PhotosApp(screen=screen, screen_rect=screen_rect, clock=clock)
+        except Exception:
+            logger.exception("Photos prewarm initialization failed")
+            photos_app = None
     pointer_block_until = 0.0
     last_input = time.monotonic()
+    last_frame_time = time.monotonic()
 
     running = True
     _draw_launcher_frame(screen, background, apps, buttons)
     while running:
+        now = time.monotonic()
+        if now - last_frame_time > 2.0:
+            logger.info("Launcher resume detected via frame-time gap")
+            pygame.event.clear(_pointer_event_types())
+            pointer_block_until = now + 0.25
+        last_frame_time = now
         for event in pygame.event.get():
+            if _is_resume_event(event):
+                logger.info("Launcher resumed from focus/background event")
+                pygame.event.clear(_pointer_event_types())
+                pointer_block_until = time.monotonic() + 0.25
+                continue
             if event.type in {
                 pygame.MOUSEMOTION,
                 pygame.MOUSEBUTTONDOWN,
@@ -211,22 +251,17 @@ def main() -> None:
                     continue
                 for app, button in zip(apps, buttons):
                     if button.hit(pos):
+                        logger.info(f"Launching app: {app.name}")
                         used_subprocess, photos_app = _launch_app(
-                            app, screen, screen_rect, clock, photos_app=photos_app,
+                            app, screen, screen_rect, clock, logger, photos_app=photos_app,
                         )
                         if used_subprocess:
                             screen, screen_rect = _restore_launcher_window()
                             buttons = _build_buttons(apps, screen_rect)
-                        pointer_events = [pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP]
-                        finger_down = getattr(pygame, "FINGERDOWN", None)
-                        finger_up = getattr(pygame, "FINGERUP", None)
-                        if finger_down is not None:
-                            pointer_events.append(finger_down)
-                        if finger_up is not None:
-                            pointer_events.append(finger_up)
-                        pygame.event.clear(pointer_events)
+                        pygame.event.clear(_pointer_event_types())
                         pointer_block_until = time.monotonic() + 0.25
                         last_input = time.monotonic()
+                        logger.info(f"Returned to launcher from app: {app.name}")
                         _draw_launcher_frame(screen, background, apps, buttons)
                         break
 
@@ -234,7 +269,11 @@ def main() -> None:
         now = time.monotonic()
         if photos_app and now - last_input >= (prewarm_idle_ms / 1000.0) and now >= pointer_block_until:
             for _ in range(prewarm_batch):
-                photos_app._load_next_thumbnail()
+                try:
+                    photos_app._load_next_thumbnail()
+                except Exception:
+                    logger.exception("Photos prewarm thumbnail load failed")
+                    break
         clock.tick(60)
 
     pygame.quit()

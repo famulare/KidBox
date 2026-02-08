@@ -127,7 +127,7 @@ Large-format typing surface with per-character styling controls and recall.
   - Eraser
   - Bucket fill
 - 3 line-size options (small/medium/large)
-- 13-color palette (configurable)
+- 14-color palette (configurable)
 - Stroke-based undo (default depth: 10)
 - Autosave + archive on "New"
 - Recall overlay in the left tools panel:
@@ -171,6 +171,9 @@ All child-generated data lives under a single directory, configured by `data_roo
 ├── photos/
 │   ├── library/
 │   └── thumbs/
+├── logs/
+│   ├── toddlerbox.log
+│   └── toddlerbox.log.1
 └── typing/
     └── sessions.jsonl
 ```
@@ -236,6 +239,16 @@ UV_CACHE_DIR=/tmp/uv-cache uv pip install -e ".[dev]"
 ./scripts/dev-run.sh tests
 ```
 
+`scripts/dev-run.sh` is for development and exits on crash.
+
+For kiosk-style resilience testing, use:
+
+```bash
+./scripts/run-stable.sh
+```
+
+`scripts/run-stable.sh` restarts the launcher automatically with bounded backoff if it exits unexpectedly.
+
 ---
 
 ## Running the Apps
@@ -273,33 +286,10 @@ Example:
 [Desktop Entry]
 Type=Application
 Name=ToddlerBox Launcher
-Exec=/home/<user>/.local/bin/start-toddlerbox-launcher.sh
+Exec=/home/<user>/git/ToddlerBox/scripts/run-stable.sh
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=1
 Terminal=false
-```
-
-### 3) Start script executed by GNOME
-
-Create:
-
-```text
-~/.local/bin/start-toddlerbox-launcher.sh
-```
-
-Example:
-
-```bash
-#!/usr/bin/env bash
-cd /opt/toddlerbox
-export UV_CACHE_DIR=/tmp/uv-cache
-exec /opt/toddlerbox/.venv/bin/python -m toddlerbox.launcher
-```
-
-Make it executable:
-
-```bash
-chmod +x ~/.local/bin/start-toddlerbox-launcher.sh
 ```
 
 ### 4) Delay behavior
@@ -307,7 +297,7 @@ chmod +x ~/.local/bin/start-toddlerbox-launcher.sh
 There are two independent launch delays:
 
 - `X-GNOME-Autostart-Delay` in the `.desktop` file.
-- Any `sleep` in `start-toddlerbox-launcher.sh`.
+- Any delay logic in your autostart target command/script.
 
 Use one delay mechanism or keep both values low to avoid a long blank/login-to-launch gap.
 

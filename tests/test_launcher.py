@@ -1,4 +1,4 @@
-from toddlerbox.launcher import _embedded_runner_for_command, _resolve_command, _restore_launcher_window
+from toddlerbox.launcher import _EMBEDDED_RUNNERS, _module_name_for_command, _resolve_command, _restore_launcher_window
 
 
 def test_resolve_command_uses_active_interpreter_for_python(monkeypatch):
@@ -41,11 +41,12 @@ def test_restore_launcher_window_recreates_when_surface_missing(monkeypatch):
     assert rect == "new-rect"
 
 
-def test_embedded_runner_for_command_matches_builtin_module():
-    runner = _embedded_runner_for_command(["python", "-m", "toddlerbox.paint"])
-    assert runner is not None
+def test_module_name_for_command_matches_builtin_module():
+    module_name = _module_name_for_command(["python", "-m", "toddlerbox.paint"])
+    assert module_name == "toddlerbox.paint"
+    assert module_name in _EMBEDDED_RUNNERS
 
 
-def test_embedded_runner_for_command_ignores_non_builtin_module():
-    runner = _embedded_runner_for_command(["python", "-m", "external.tool"])
-    assert runner is None
+def test_module_name_for_command_ignores_non_module_command():
+    module_name = _module_name_for_command(["/usr/bin/echo", "hello"])
+    assert module_name is None
