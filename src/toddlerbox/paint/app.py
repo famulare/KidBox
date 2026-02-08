@@ -208,8 +208,15 @@ def _bucket_fill(surface: pygame.Surface, pos: Point, color: Color) -> None:
     target_mapped = surface.map_rgb(target)
     replacement = surface.map_rgb(color)
     pixels: Optional[pygame.PixelArray] = None
+    use_slice_fill = False
     try:
         pixels = pygame.PixelArray(surface)
+        try:
+            pixels[0:1, y] = replacement
+            use_slice_fill = True
+            pixels[0:1, y] = target_mapped
+        except Exception:
+            use_slice_fill = False
         lx = x
         while lx - 1 >= 0 and pixels[lx - 1, y] == target_mapped:
             lx -= 1
@@ -219,8 +226,11 @@ def _bucket_fill(surface: pygame.Surface, pos: Point, color: Color) -> None:
         stack = [(lx, rx, y)]
         while stack:
             lx, rx, sy = stack.pop()
-            for fx in range(lx, rx + 1):
-                pixels[fx, sy] = replacement
+            if use_slice_fill:
+                pixels[lx : rx + 1, sy] = replacement
+            else:
+                for fx in range(lx, rx + 1):
+                    pixels[fx, sy] = replacement
 
             for ny in (sy - 1, sy + 1):
                 if ny < 0 or ny >= height:
