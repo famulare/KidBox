@@ -53,6 +53,16 @@ def _thumb_name(path: Path) -> str:
     return f"{path.stem}_{suffix}.png"
 
 
+def _load_photo_surface(path: Path, *, for_thumbnail: bool = False) -> pygame.Surface:
+    image = pygame.image.load(str(path))
+    suffix = path.suffix.lower()
+    if for_thumbnail and suffix in {".jpg", ".jpeg", ".bmp"}:
+        return image.convert()
+    if suffix in {".jpg", ".jpeg", ".bmp"}:
+        return image.convert()
+    return image.convert_alpha()
+
+
 def _scale_to_fit(surface: pygame.Surface, size: Tuple[int, int]) -> pygame.Surface:
     target_w, target_h = size
     src_w, src_h = surface.get_size()
@@ -120,14 +130,31 @@ def _list_photos(library_dir: Path, exif_cache: dict[str, Optional[float]]) -> T
 
 
 def _load_exif_cache(path: Path) -> dict[str, Optional[float]]:
+    def _replace_cache_with_empty() -> dict[str, Optional[float]]:
+        _save_exif_cache(path, {})
+        return {}
+
     try:
         with path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
-        if isinstance(data, dict):
-            return {str(key): (val if isinstance(val, (int, float)) or val is None else None) for key, val in data.items()}
+        if not isinstance(data, dict):
+            return _replace_cache_with_empty()
+        normalized: dict[str, Optional[float]] = {}
+        for key, val in data.items():
+            if not isinstance(key, str):
+                return _replace_cache_with_empty()
+            if isinstance(val, (int, float)):
+                normalized[key] = float(val)
+            elif val is None:
+                normalized[key] = None
+            else:
+                return _replace_cache_with_empty()
+        return normalized
+    except FileNotFoundError:
+        return {}
     except Exception:
-        pass
-    return {}
+        # Unknown/corrupt cache: replace with canonical empty map.
+        return _replace_cache_with_empty()
 
 
 def _save_exif_cache(path: Path, data: dict[str, Optional[float]]) -> None:
@@ -246,6 +273,20 @@ class PhotosApp:
         self._pending_set = set(self._pending_order)
         self._pending_cursor = 0
 
+    def _thumb_slot(self) -> int:
+        return self.thumb_size + self.thumb_gap
+
+    def _thumb_y_for_index(self, idx: int) -> int:
+        return self.thumb_gap - self.scroll_y + idx * self._thumb_slot()
+
+    def _visible_index_bounds(self) -> Tuple[int, int]:
+        if not self.items:
+            return (0, -1)
+        slot = self._thumb_slot()
+        start = max(0, (self.scroll_y - self.thumb_gap) // slot - 1)
+        end = min(len(self.items) - 1, (self.scroll_y + self.screen_rect.height - self.thumb_gap) // slot + 1)
+        return (int(start), int(end))
+
     def _load_initial_thumbnails(self) -> None:
         initial_count = max(0, min(self.initial_thumb_count, len(self._pending_order)))
         for idx in range(initial_count):
@@ -254,19 +295,10 @@ class PhotosApp:
         self._pending_cursor = initial_count
 
     def _visible_indices(self) -> List[int]:
-        indices: List[int] = []
-        y = self.thumb_gap - self.scroll_y
-        for idx, _item in enumerate(self.items):
-            rect = pygame.Rect(
-                self.strip_rect.left + self.thumb_padding_x,
-                y,
-                self.thumb_width,
-                self.thumb_size,
-            )
-            if rect.bottom >= 0 and rect.top <= self.screen_rect.height:
-                indices.append(idx)
-            y += self.thumb_size + self.thumb_gap
-        return indices
+        start, end = self._visible_index_bounds()
+        if end < start:
+            return []
+        return list(range(start, end + 1))
 
     def _next_pending_index(self, prefer_indices: Optional[List[int]]) -> Optional[int]:
         if prefer_indices:
@@ -303,13 +335,13 @@ class PhotosApp:
         if thumb_path.exists():
             try:
                 if thumb_path.stat().st_mtime >= source_mtime:
-                    loaded_thumb = pygame.image.load(str(thumb_path)).convert_alpha()
+                    loaded_thumb = _load_photo_surface(thumb_path, for_thumbnail=True)
                     item.thumb = self._fit_thumb_surface(loaded_thumb)
                     return
             except Exception:
                 pass
         try:
-            image = pygame.image.load(str(item.path)).convert_alpha()
+            image = _load_photo_surface(item.path, for_thumbnail=True)
             thumb = self._fit_thumb_surface(image)
             pygame.image.save(thumb, str(thumb_path))
             item.thumb = thumb
@@ -358,7 +390,7 @@ class PhotosApp:
             return
         path = self.items[self.current_index].path
         try:
-            image = pygame.image.load(str(path)).convert_alpha()
+            image = _load_photo_surface(path, for_thumbnail=False)
             self.current_image = _scale_to_fit(image, self.main_rect.size)
         except Exception:
             self.current_image = None
@@ -374,18 +406,20 @@ class PhotosApp:
         return max(0, total_height - self.screen_rect.height)
 
     def _thumb_index_at_pos(self, pos: Tuple[int, int]) -> Optional[int]:
-        y = self.thumb_gap - self.scroll_y
-        for idx, _item in enumerate(self.items):
-            rect = pygame.Rect(
-                self.strip_rect.left + self.thumb_padding_x,
-                y,
-                self.thumb_width,
-                self.thumb_size,
-            )
-            if rect.collidepoint(pos):
-                return idx
-            y += self.thumb_size + self.thumb_gap
-        return None
+        left = self.strip_rect.left + self.thumb_padding_x
+        right = left + self.thumb_width
+        if pos[0] < left or pos[0] > right:
+            return None
+        slot = self._thumb_slot()
+        local_y = pos[1] - (self.thumb_gap - self.scroll_y)
+        if local_y < 0:
+            return None
+        idx = int(local_y // slot)
+        if idx < 0 or idx >= len(self.items):
+            return None
+        if (local_y % slot) > self.thumb_size:
+            return None
+        return idx
 
     def _scroll_thumbnails(self, delta: int) -> None:
         self.scroll_y = max(0, min(self._max_scroll(), self.scroll_y + delta))
@@ -401,22 +435,22 @@ class PhotosApp:
             text = self.font.render("No photos found", True, (50, 50, 50))
             self.screen.blit(text, text.get_rect(center=self.main_rect.center))
 
-        y = self.thumb_gap - self.scroll_y
-        for idx, item in enumerate(self.items):
+        start, end = self._visible_index_bounds()
+        for idx in range(start, end + 1):
+            item = self.items[idx]
+            y = self._thumb_y_for_index(idx)
             rect = pygame.Rect(
                 self.strip_rect.left + self.thumb_padding_x,
                 y,
                 self.thumb_width,
                 self.thumb_size,
             )
-            if rect.bottom >= 0 and rect.top <= self.screen_rect.height:
-                if item.thumb:
-                    thumb_rect = item.thumb.get_rect(center=rect.center)
-                    self.screen.blit(item.thumb, thumb_rect)
-                pygame.draw.rect(self.screen, (120, 120, 120), rect, width=2)
-                if idx == self.current_index:
-                    pygame.draw.rect(self.screen, (200, 60, 60), rect, width=3)
-            y += self.thumb_size + self.thumb_gap
+            if item.thumb:
+                thumb_rect = item.thumb.get_rect(center=rect.center)
+                self.screen.blit(item.thumb, thumb_rect)
+            pygame.draw.rect(self.screen, (120, 120, 120), rect, width=2)
+            if idx == self.current_index:
+                pygame.draw.rect(self.screen, (200, 60, 60), rect, width=3)
 
         draw_home_button(self.screen, self.home_button.rect)
 
@@ -535,17 +569,16 @@ class PhotosApp:
 
             self._render()
             now_ms = pygame.time.get_ticks()
-            active = (
-                now_ms - last_input_ms < self.thumb_idle_ms
-                or now_ms - last_scroll_ms < self.thumb_scroll_idle_ms
-            )
+            scroll_active = now_ms - last_scroll_ms < self.thumb_scroll_idle_ms
+            active_input = now_ms - last_input_ms < self.thumb_idle_ms
             budget_end = now_ms + self.thumb_time_budget_ms
-            batch = 1 if active else self.thumb_load_batch
-            visible_indices = None if active else self._visible_indices()
-            for _ in range(batch):
-                self._load_next_thumbnail(visible_indices)
-                if pygame.time.get_ticks() >= budget_end:
-                    break
+            visible_indices = self._visible_indices()
+            if not scroll_active:
+                batch = 1 if active_input else self.thumb_load_batch
+                for _ in range(batch):
+                    self._load_next_thumbnail(visible_indices)
+                    if pygame.time.get_ticks() >= budget_end:
+                        break
             self.clock.tick(60)
 
         if quit_on_exit:
