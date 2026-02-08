@@ -111,6 +111,9 @@ It reflects implementation as it exists today, not aspirational scope.
 - Styling changes apply to newly typed characters from cursor forward
 - Cursor and glyph rendering support mixed sizes/styles in one line
 - Mixed-size line rendering is bottom-aligned per row
+- Text area uses soft word wrapping:
+  - Words wrap to the next line if they would overflow the text area width
+  - A single word longer than the text area width is split across lines
 
 ### 4.3 Controls
 
@@ -119,6 +122,9 @@ It reflects implementation as it exists today, not aspirational scope.
 - Size buttons: default 25, plus 50 and 100
 - Style buttons: Plain, Bold, Italic
 - Recall button uses static thumbnail text prompt
+- Cursor navigation:
+  - Up/Down moves by soft-wrapped visual lines
+  - View auto-scrolls to keep the cursor visible
 
 ### 4.4 Recall and persistence
 

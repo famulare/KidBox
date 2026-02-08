@@ -53,6 +53,73 @@ class RecallSession:
     is_current: bool = False
 
 
+@dataclass
+class VisualLine:
+    row: int
+    start_col: int
+    end_col: int
+    glyphs: List[Glyph]
+    widths: List[int]
+    height: int
+
+
+@dataclass
+class _Token:
+    start: int
+    end: int
+    widths: List[int]
+    is_space: bool
+
+
+def _wrap_tokens(tokens: List[_Token], max_width: int) -> List[Tuple[int, int]]:
+    if max_width <= 0:
+        return []
+    lines: List[Tuple[int, int]] = []
+    line_start: Optional[int] = None
+    line_end: Optional[int] = None
+    line_width = 0
+    for token in tokens:
+        token_width = sum(token.widths)
+        if token_width <= max_width:
+            if line_width == 0:
+                line_start = token.start
+                line_end = token.end
+                line_width = token_width
+            elif line_width + token_width <= max_width:
+                line_end = token.end
+                line_width += token_width
+            else:
+                if line_start is not None and line_end is not None:
+                    lines.append((line_start, line_end))
+                line_start = token.start
+                line_end = token.end
+                line_width = token_width
+            continue
+
+        if line_width > 0:
+            if line_start is not None and line_end is not None:
+                lines.append((line_start, line_end))
+            line_start = None
+            line_end = None
+            line_width = 0
+
+        idx = token.start
+        i = 0
+        widths = token.widths
+        while i < len(widths):
+            acc = 0
+            j = i
+            while j < len(widths) and (acc + widths[j] <= max_width or acc == 0):
+                acc += widths[j]
+                j += 1
+            lines.append((idx + i, idx + j))
+            i = j
+
+    if line_width > 0 and line_start is not None and line_end is not None:
+        lines.append((line_start, line_end))
+    return lines
+
+
 def _preview_text(text: str, limit: int = 150) -> str:
     normalized = " ".join(text.split())
     return normalized[:limit]
@@ -173,6 +240,9 @@ class TypingApp:
         self.undo_stack: List[EditOp] = []
         self.cursor_row = 0
         self.cursor_col = 0
+        self.cursor_x_target: Optional[int] = None
+        self._cursor_x_target_dirty = True
+        self.text_scroll_y = 0
 
         self.margin = 16
         self.menu_pad = 10
@@ -258,6 +328,7 @@ class TypingApp:
 
         self._recall_overlay = pygame.Surface(self.screen_rect.size, pygame.SRCALPHA)
         self._recall_overlay.fill((0, 0, 0, 140))
+        pygame.key.set_repeat(400, 30)
 
         self.text_pad_x = 24
         self.text_pad_top = 20
@@ -357,6 +428,7 @@ class TypingApp:
             self.cursor_row += 1
             self.cursor_col = 0
             self._push_undo(op)
+            self._mark_cursor_x_target_dirty()
             return
 
         glyph = Glyph(char=char, size=self.current_text_size, style=self.text_style)
@@ -371,6 +443,7 @@ class TypingApp:
         self._insert_glyph_at(self.cursor_row, self.cursor_col, glyph)
         self.cursor_col += 1
         self._push_undo(op)
+        self._mark_cursor_x_target_dirty()
 
     def _delete_backward(self) -> EditOp | None:
         if self.cursor_row == 0 and self.cursor_col == 0:
@@ -388,6 +461,7 @@ class TypingApp:
                 cursor_col=self.cursor_col,
             )
             self.cursor_col -= 1
+            self._mark_cursor_x_target_dirty()
             return op
 
         prev_len = len(self.rich_lines[self.cursor_row - 1])
@@ -402,6 +476,7 @@ class TypingApp:
         self._remove_newline_at(self.cursor_row - 1)
         self.cursor_row -= 1
         self.cursor_col = prev_len
+        self._mark_cursor_x_target_dirty()
         return op
 
     def _undo(self) -> None:
@@ -420,6 +495,7 @@ class TypingApp:
                 self._insert_glyph_at(op.row, op.col, op.glyph)
         self.cursor_row = op.cursor_row
         self.cursor_col = op.cursor_col
+        self._mark_cursor_x_target_dirty()
 
     def _archive_session(self) -> None:
         record = {
@@ -442,23 +518,30 @@ class TypingApp:
         self.undo_stack = []
         self.cursor_row = 0
         self.cursor_col = 0
+        self.cursor_x_target = 0
+        self._cursor_x_target_dirty = False
+        self.text_scroll_y = 0
 
     def _move_cursor_left(self) -> None:
         if self.cursor_col > 0:
             self.cursor_col -= 1
+            self._mark_cursor_x_target_dirty()
             return
         if self.cursor_row > 0:
             self.cursor_row -= 1
             self.cursor_col = len(self.rich_lines[self.cursor_row])
+            self._mark_cursor_x_target_dirty()
 
     def _move_cursor_right(self) -> None:
         line = self.rich_lines[self.cursor_row]
         if self.cursor_col < len(line):
             self.cursor_col += 1
+            self._mark_cursor_x_target_dirty()
             return
         if self.cursor_row < len(self.rich_lines) - 1:
             self.cursor_row += 1
             self.cursor_col = 0
+            self._mark_cursor_x_target_dirty()
 
     def _move_cursor_up(self) -> None:
         if self.cursor_row == 0:
@@ -474,9 +557,11 @@ class TypingApp:
 
     def _move_cursor_home(self) -> None:
         self.cursor_col = 0
+        self._mark_cursor_x_target_dirty()
 
     def _move_cursor_end(self) -> None:
         self.cursor_col = len(self.rich_lines[self.cursor_row])
+        self._mark_cursor_x_target_dirty()
 
     def _move_cursor_page_up(self, lines: int) -> None:
         if self.cursor_row == 0:
@@ -524,7 +609,174 @@ class TypingApp:
         return self.current_text_size + self.line_gap
 
     def _lines_per_page(self) -> int:
-        return max(1, (self.text_rect.height - (self.text_pad_top + 20)) // self._line_step())
+        return max(1, self._view_height() // self._line_step())
+
+    def _view_height(self) -> int:
+        return max(1, self.text_rect.height - (self.text_pad_top + 20))
+
+    def _content_height(self, lines: List[VisualLine]) -> int:
+        if not lines:
+            return 0
+        total = sum(line.height + self.line_gap for line in lines)
+        return max(0, total - self.line_gap)
+
+    def _tokenize_row(self, glyphs: List[Glyph], widths: List[int]) -> List[_Token]:
+        if not glyphs:
+            return []
+        tokens: List[_Token] = []
+        start = 0
+        current_space = glyphs[0].char.isspace()
+        for idx, glyph in enumerate(glyphs):
+            is_space = glyph.char.isspace()
+            if is_space != current_space:
+                tokens.append(_Token(start=start, end=idx, widths=widths[start:idx], is_space=current_space))
+                start = idx
+                current_space = is_space
+        tokens.append(_Token(start=start, end=len(glyphs), widths=widths[start:], is_space=current_space))
+        return tokens
+
+    def _visual_line_height(self, row: int, glyphs: List[Glyph]) -> int:
+        if not glyphs:
+            return self._line_font_height(row, for_cursor_row=(row == self.cursor_row))
+        return max(self._get_font(g.size, g.style).get_height() for g in glyphs)
+
+    def _build_visual_lines(self) -> List[VisualLine]:
+        max_width = max(1, self.text_rect.width - self.text_pad_x * 2)
+        lines: List[VisualLine] = []
+        for row_idx, row in enumerate(self.rich_lines):
+            if not row:
+                height = self._visual_line_height(row_idx, [])
+                lines.append(
+                    VisualLine(
+                        row=row_idx,
+                        start_col=0,
+                        end_col=0,
+                        glyphs=[],
+                        widths=[],
+                        height=height,
+                    )
+                )
+                continue
+            row_widths = [self._get_font(g.size, g.style).size(g.char)[0] for g in row]
+            tokens = self._tokenize_row(row, row_widths)
+            ranges = _wrap_tokens(tokens, max_width)
+            for start, end in ranges:
+                glyphs = row[start:end]
+                widths = row_widths[start:end]
+                height = self._visual_line_height(row_idx, glyphs)
+                lines.append(
+                    VisualLine(
+                        row=row_idx,
+                        start_col=start,
+                        end_col=end,
+                        glyphs=glyphs,
+                        widths=widths,
+                        height=height,
+                    )
+                )
+        if not lines:
+            height = self._visual_line_height(self.cursor_row, [])
+            lines.append(VisualLine(row=self.cursor_row, start_col=0, end_col=0, glyphs=[], widths=[], height=height))
+        return lines
+
+    def _cursor_x_offset_in_line(self, line: VisualLine, cursor_col: int) -> int:
+        if not line.widths:
+            return 0
+        if cursor_col <= line.start_col:
+            return 0
+        if cursor_col >= line.end_col:
+            return sum(line.widths)
+        offset = 0
+        upto = cursor_col - line.start_col
+        for width in line.widths[:upto]:
+            offset += width
+        return offset
+
+    def _cursor_visual_info(self, lines: List[VisualLine]) -> Tuple[int, int, int, int]:
+        content_y = 0
+        fallback_idx: Optional[int] = None
+        fallback_y = 0
+        for idx, line in enumerate(lines):
+            if line.row == self.cursor_row:
+                if fallback_idx is None:
+                    fallback_idx = idx
+                    fallback_y = content_y
+                if self.cursor_col < line.start_col or self.cursor_col > line.end_col:
+                    content_y += line.height + self.line_gap
+                    continue
+                if self.cursor_col == line.end_col and line.glyphs and idx + 1 < len(lines):
+                    next_line = lines[idx + 1]
+                    if next_line.row == self.cursor_row and next_line.start_col == self.cursor_col:
+                        content_y += line.height + self.line_gap
+                        continue
+                x_offset = self._cursor_x_offset_in_line(line, self.cursor_col)
+                return idx, content_y, line.height, x_offset
+            content_y += line.height + self.line_gap
+        if fallback_idx is None:
+            fallback_idx = 0
+            fallback_y = 0
+        line = lines[fallback_idx]
+        x_offset = self._cursor_x_offset_in_line(line, min(self.cursor_col, line.end_col))
+        return fallback_idx, fallback_y, line.height, x_offset
+
+    def _ensure_cursor_visible(self, lines: List[VisualLine], cursor_info: Tuple[int, int, int, int]) -> None:
+        view_height = self._view_height()
+        content_height = self._content_height(lines)
+        max_scroll = max(0, content_height - view_height)
+        if content_height <= view_height:
+            self.text_scroll_y = 0
+            return
+        _, cursor_top, cursor_h, _ = cursor_info
+        view_top = self.text_scroll_y
+        view_bottom = view_top + view_height
+        cursor_bottom = cursor_top + cursor_h
+        if cursor_bottom > view_bottom:
+            self.text_scroll_y = cursor_bottom - view_height
+        elif cursor_top < view_top:
+            self.text_scroll_y = cursor_top
+        self.text_scroll_y = max(0, min(max_scroll, self.text_scroll_y))
+
+    def _mark_cursor_x_target_dirty(self) -> None:
+        self._cursor_x_target_dirty = True
+
+    def _maybe_update_cursor_x_target(self, cursor_info: Tuple[int, int, int, int]) -> None:
+        if self.cursor_x_target is None or self._cursor_x_target_dirty:
+            self.cursor_x_target = cursor_info[3]
+            self._cursor_x_target_dirty = False
+
+    def _col_for_x(self, line: VisualLine, target_x: int) -> int:
+        if not line.widths:
+            return line.start_col
+        x = 0.0
+        for idx, width in enumerate(line.widths):
+            if target_x <= x + (width / 2):
+                return line.start_col + idx
+            x += width
+        return line.end_col
+
+    def _move_cursor_up_visual(self, lines: List[VisualLine]) -> None:
+        if not lines:
+            return
+        idx, _, _, x_offset = self._cursor_visual_info(lines)
+        if self.cursor_x_target is None:
+            self.cursor_x_target = x_offset
+        if idx == 0:
+            return
+        target = lines[idx - 1]
+        self.cursor_row = target.row
+        self.cursor_col = self._col_for_x(target, self.cursor_x_target or 0)
+
+    def _move_cursor_down_visual(self, lines: List[VisualLine]) -> None:
+        if not lines:
+            return
+        idx, _, _, x_offset = self._cursor_visual_info(lines)
+        if self.cursor_x_target is None:
+            self.cursor_x_target = x_offset
+        if idx >= len(lines) - 1:
+            return
+        target = lines[idx + 1]
+        self.cursor_row = target.row
+        self.cursor_col = self._col_for_x(target, self.cursor_x_target or 0)
 
     def _set_text_font(self, *, size: Optional[int] = None, style: Optional[str] = None) -> None:
         if size is not None:
@@ -591,6 +843,9 @@ class TypingApp:
         self.undo_stack = []
         self.cursor_row = max(0, len(self.rich_lines) - 1)
         self.cursor_col = len(self.rich_lines[self.cursor_row]) if self.rich_lines else 0
+        self.cursor_x_target = None
+        self._cursor_x_target_dirty = True
+        self.text_scroll_y = 0
         self.recall_open = False
 
     def _wrap_preview_lines(self, text: str, max_width: int, max_lines: int) -> List[str]:
@@ -738,31 +993,30 @@ class TypingApp:
         else:
             self.recall_button.draw(self.screen)
 
-        text_x = self.text_rect.left + self.text_pad_x
-        y = self.text_rect.top + self.text_pad_top
-        cursor_x = text_x
-        cursor_y = y
-        cursor_h = self._line_font_height(self.cursor_row)
+        visual_lines = self._build_visual_lines()
+        cursor_info = self._cursor_visual_info(visual_lines)
+        self._maybe_update_cursor_x_target(cursor_info)
+        self._ensure_cursor_visible(visual_lines, cursor_info)
 
-        for row_idx, line in enumerate(self.rich_lines):
-            x = text_x
-            row_h = self._line_font_height(row_idx)
-            if row_idx == self.cursor_row:
-                cursor_x = text_x
-                cursor_y = y
-                cursor_h = row_h
-            for col_idx, glyph in enumerate(line):
-                font = self._get_font(glyph.size, glyph.style)
-                surf = font.render(glyph.char, True, (20, 20, 20))
-                glyph_y = y + (row_h - font.get_height())
-                self.screen.blit(surf, (x, glyph_y))
-                glyph_w = font.size(glyph.char)[0]
-                if row_idx == self.cursor_row and col_idx < self.cursor_col:
-                    cursor_x = x + glyph_w
-                x += glyph_w
-            if row_idx == self.cursor_row and self.cursor_col >= len(line):
-                cursor_x = x
-            y += row_h + self.line_gap
+        text_x = self.text_rect.left + self.text_pad_x
+        view_top = self.text_rect.top + self.text_pad_top
+        view_bottom = view_top + self._view_height()
+        _, cursor_content_y, cursor_h, cursor_x_offset = cursor_info
+        cursor_x = text_x + cursor_x_offset
+        cursor_y = view_top - self.text_scroll_y + cursor_content_y
+
+        content_y = 0
+        for idx, line in enumerate(visual_lines):
+            y = view_top - self.text_scroll_y + content_y
+            if y + line.height >= view_top and y <= view_bottom:
+                x = text_x
+                for glyph, glyph_w in zip(line.glyphs, line.widths):
+                    font = self._get_font(glyph.size, glyph.style)
+                    surf = font.render(glyph.char, True, (20, 20, 20))
+                    glyph_y = y + (line.height - font.get_height())
+                    self.screen.blit(surf, (x, glyph_y))
+                    x += glyph_w
+            content_y += line.height + self.line_gap
 
         pygame.draw.rect(self.screen, (30, 30, 30), (cursor_x, cursor_y, 6, cursor_h))
 
@@ -807,9 +1061,9 @@ class TypingApp:
                         elif event.key == pygame.K_RIGHT:
                             self._move_cursor_right()
                         elif event.key == pygame.K_UP:
-                            self._move_cursor_up()
+                            self._move_cursor_up_visual(self._build_visual_lines())
                         elif event.key == pygame.K_DOWN:
-                            self._move_cursor_down()
+                            self._move_cursor_down_visual(self._build_visual_lines())
                         elif event.key == pygame.K_HOME:
                             self._move_cursor_home()
                         elif event.key == pygame.K_END:
