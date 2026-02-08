@@ -11,6 +11,7 @@ It reflects implementation as it exists today, not aspirational scope.
 - Child-facing screens never show dialogs or crash traces
 - Parent escape chord from launcher: `Ctrl + Alt + Home`
 - Data root is configurable via `data_root` (defaults: dev `./data`, runtime fallback `/data`)
+- Keyboard hardening is expected in kiosk installs (OS-level no-op for escape-hatch keys like `Super`, media/brightness, `rfkill`)
 
 ## 1. Launcher
 

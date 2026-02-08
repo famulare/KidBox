@@ -37,6 +37,15 @@ It is a small, comprehensible appliance built on top of Ubuntu.
 
 ---
 
+## Keyboard hardening (toddler-proofing)
+
+In a real kiosk setup, OS-level key handling still matters (e.g. `Super`/Windows, media keys, brightness, airplane mode).
+ToddlerBox ignores some keys in-app, but the most robust approach is to no-op escape-hatch keys at the Linux input level (works on Wayland too).
+
+- Example `keyd` config generator: `scripts/noop_keys_keyd.sh`
+
+---
+
 ## High-level Architecture
 
 ```
