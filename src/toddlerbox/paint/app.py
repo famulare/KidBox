@@ -15,6 +15,7 @@ from toddlerbox.paths import ensure_directories, get_data_root
 from toddlerbox.runtime import RuntimeLogger, get_runtime_logger
 from toddlerbox.ui.common import (
     Button,
+    FINGER_EVENTS,
     create_fullscreen_window,
     draw_home_button,
     is_primary_pointer_event,
@@ -284,6 +285,28 @@ def _load_canvas_image(path: Path, size: Tuple[int, int]) -> Optional[pygame.Sur
     return pygame.transform.smoothscale(image, size)
 
 
+def _scale_input_pos(
+    pos: Point,
+    source_size: Tuple[int, int],
+    target_size: Tuple[int, int],
+) -> Point:
+    src_w, src_h = source_size
+    tgt_w, tgt_h = target_size
+    if src_w <= 0 or src_h <= 0 or tgt_w <= 0 or tgt_h <= 0:
+        return pos
+    if src_w == tgt_w and src_h == tgt_h:
+        return pos
+    x, y = float(pos[0]), float(pos[1])
+    if not (0 <= x <= src_w and 0 <= y <= src_h):
+        return pos
+    scale_x = tgt_w / src_w
+    scale_y = tgt_h / src_h
+    return (
+        int(round(x * scale_x)),
+        int(round(y * scale_y)),
+    )
+
+
 class PaintApp:
     def __init__(
         self,
@@ -529,7 +552,18 @@ class PaintApp:
         self._update_thumbnail_button()
 
     def _event_pos(self, event: pygame.event.Event) -> Optional[Point]:
-        return pointer_event_pos(event, self.screen_rect)
+        raw_pos = pointer_event_pos(event, self.screen_rect)
+        if raw_pos is None:
+            return None
+        window_size = pygame.display.get_window_size()
+        is_touch_emulated_mouse = bool(getattr(event, "touch", False))
+        is_finger_event = event.type in FINGER_EVENTS
+        if FINGERMOTION is not None:
+            is_finger_event = is_finger_event or event.type == FINGERMOTION
+        if window_size == self.screen_rect.size or is_finger_event or is_touch_emulated_mouse:
+            return raw_pos
+        return _scale_input_pos(raw_pos, window_size, self.screen_rect.size)
+
 
     def _push_undo(self) -> None:
         self.undo_stack.append(self.canvas_surface.copy())

@@ -9,6 +9,7 @@ from toddlerbox.paint.app import _load_canvas_image
 from toddlerbox.paint.app import _list_archives
 from toddlerbox.paint.app import _rollover_latest_snapshot
 from toddlerbox.paint.app import _save_surface_atomic
+from toddlerbox.paint.app import PaintApp
 from toddlerbox.ui.common import is_primary_pointer_event
 
 
@@ -142,3 +143,19 @@ def test_save_surface_atomic_cleans_tmp_file_on_failure(monkeypatch, tmp_path):
         pass
 
     assert not tmp_pathname.exists()
+
+
+def test_event_pos_scales_mouse_when_window_size_differs(monkeypatch):
+    app = PaintApp.__new__(PaintApp)
+    app.screen_rect = pygame.Rect(0, 0, 1920, 1080)
+    monkeypatch.setattr(pygame.display, "get_window_size", lambda: (1280, 720))
+    event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=(640, 360), button=1)
+    assert app._event_pos(event) == (960, 540)
+
+
+def test_event_pos_keeps_touch_emulated_mouse_unscaled(monkeypatch):
+    app = PaintApp.__new__(PaintApp)
+    app.screen_rect = pygame.Rect(0, 0, 1920, 1080)
+    monkeypatch.setattr(pygame.display, "get_window_size", lambda: (1280, 720))
+    event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=(640, 360), button=1, touch=True)
+    assert app._event_pos(event) == (640, 360)
