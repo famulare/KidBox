@@ -23,7 +23,7 @@ It reflects implementation as it exists today, not aspirational scope.
   - Typing
 - Icon hit targets are computed from screen size (minimum 120px)
 - Function keys `F1`-`F12` are ignored
-- `Ctrl + Alt + Home` exits launcher to GNOME
+- `Ctrl + Alt + Home` exits launcher/Cage to `tty1` shell
 
 ### 1.2 App handoff model
 

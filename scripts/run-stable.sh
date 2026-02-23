@@ -17,7 +17,7 @@ MAX_BACKOFF=5
 while true; do
   TS="$(date -Iseconds)"
   echo "${TS} starting toddlerbox launcher"
-  if uv run python -m toddlerbox.launcher; then
+  if uv run --frozen python -m toddlerbox.launcher; then
     TS="$(date -Iseconds)"
     echo "${TS} launcher exited cleanly"
     exit 0

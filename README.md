@@ -29,7 +29,7 @@ It is a small, comprehensible appliance built on top of Ubuntu.
 - **Offline by default**
   - No network dependency during normal use
 - **Parent-controlled escape**
-  - Hidden keyboard chord drops back to GNOME
+  - Hidden keyboard chord exits to parent shell on `tty1`
 - **Grow-with-the-child**
   - Built-in apps run in-process for smooth transitions
   - Non-built-in apps can still be launched via subprocess fallback
@@ -69,7 +69,7 @@ ToddlerBox ignores some keys in-app, but the most robust approach is to no-op es
 └────────────────────────────┘
 
 Underlying system:
-- Ubuntu (GNOME installed but hidden)
+- Ubuntu + systemd + Cage (Wayland kiosk compositor)
 - Python 3
 - pygame-ce / SDL
 ```
@@ -116,7 +116,7 @@ Large-format typing surface with per-character styling controls and recall.
 - No clickable "exit" control on-screen
 - Ignores function keys (`F1`-`F12`)
 - **Parent escape chord:** `Ctrl + Alt + Home`
-  - Exits the launcher and reveals GNOME
+  - Exits the launcher/Cage session and returns to `tty1`
 
 ### Paint App
 
@@ -224,9 +224,7 @@ assets/icons/
 Development uses `uv` with a local `.venv`:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv venv .venv
-source .venv/bin/activate
-UV_CACHE_DIR=/tmp/uv-cache uv pip install -e ".[dev]"
+UV_CACHE_DIR=/tmp/uv-cache uv sync
 ```
 
 ## Convenience Script
@@ -264,42 +262,96 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.typing
 
 ---
 
-## GNOME Launch Setup (Deployment)
+## Cage TTY Kiosk Setup (Deployment)
 
-ToddlerBox is launched by GNOME autostart after user login.
+ToddlerBox default deployment is a `tty1` autologin kiosk flow:
 
-### 1) Enable autologin in GNOME
+1. Boot to `multi-user.target`
+2. Autologin user on `tty1`
+3. Start `scripts/kiosk-session.sh`
+4. `kiosk-session.sh` launches `cage -- ./scripts/run-stable.sh`
 
-ToddlerBox assumes the target user logs into a GNOME session automatically.
+### 1) Install system packages
 
-### 2) Add an autostart desktop entry
-
-Create:
-
-```text
-~/.config/autostart/toddlerbox-launcher.desktop
+```bash
+sudo apt update
+sudo apt install -y cage seatd
+sudo systemctl enable --now seatd
 ```
 
-Example:
+Or run the repo helper:
+
+```bash
+./scripts/configure-kiosk-system.sh <user>
+```
+
+### 2) Install/update ToddlerBox runtime
+
+From repo root:
+
+```bash
+./scripts/install-runtime.sh
+```
+
+This runs a lockfile-based install:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv sync --frozen --no-dev
+```
+
+### 3) Configure `tty1` autologin
+
+Create `/etc/systemd/system/getty@tty1.service.d/autologin.conf`:
 
 ```ini
-[Desktop Entry]
-Type=Application
-Name=ToddlerBox Launcher
-Exec=/home/<user>/git/ToddlerBox/scripts/run-stable.sh
-X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=1
-Terminal=false
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin <user> --noclear %I $TERM
 ```
 
-### 4) Delay behavior
+Then apply:
 
-There are two independent launch delays:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart getty@tty1
+```
 
-- `X-GNOME-Autostart-Delay` in the `.desktop` file.
-- Any delay logic in your autostart target command/script.
+### 4) Start kiosk session from shell login
 
-Use one delay mechanism or keep both values low to avoid a long blank/login-to-launch gap.
+Add this block to `~/.profile` (replace `<user>` as needed):
+
+```bash
+if [ -z "${SSH_TTY:-}" ] && [ "${XDG_VTNR:-}" = "1" ] && [ "${TODDLERBOX_KIOSK_STARTED:-0}" = "0" ]; then
+  export TODDLERBOX_KIOSK_STARTED=1
+  exec /home/<user>/git/ToddlerBox/scripts/kiosk-session.sh
+fi
+```
+
+### 5) Make text boot the default
+
+```bash
+sudo systemctl set-default multi-user.target
+sudo systemctl disable gdm
+```
+
+### 6) Parent escape behavior
+
+`Ctrl + Alt + Home` exits launcher, which closes Cage and returns to a shell on `tty1`.
+
+### Rollback to GNOME boot
+
+```bash
+sudo systemctl set-default graphical.target
+sudo systemctl enable gdm
+```
+
+Remove the kiosk stanza from `~/.profile`, then reboot.
+
+Or run:
+
+```bash
+./scripts/rollback-kiosk-system.sh
+```
 
 ---
 
