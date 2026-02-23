@@ -277,6 +277,7 @@ ToddlerBox default deployment is a `tty1` autologin kiosk flow:
 sudo apt update
 sudo apt install -y cage seatd
 sudo systemctl enable --now seatd
+sudo usermod -aG seat,input,video,render <user>
 ```
 
 Or run the repo helper:
@@ -284,6 +285,10 @@ Or run the repo helper:
 ```bash
 ./scripts/configure-kiosk-system.sh <user>
 ```
+
+This helper now installs `dconf-cli` and runs `scripts/force_touchpad_enabled_dconf.sh`, so GNOME's touchpad `send-events` stays locked to `enabled` when the kiosk session launches.
+
+Note: after group changes, log out/in or reboot before testing kiosk startup.
 
 ### 2) Install/update ToddlerBox runtime
 
@@ -326,6 +331,9 @@ if [ -z "${SSH_TTY:-}" ] && [ "${XDG_VTNR:-}" = "1" ] && [ "${TODDLERBOX_KIOSK_S
   exec /home/<user>/git/ToddlerBox/scripts/kiosk-session.sh
 fi
 ```
+
+`scripts/kiosk-session.sh` now fails open to a tty shell if Cage cannot start, instead of hard-looping the login session.
+`scripts/configure-kiosk-system.sh` also creates any missing `seat`, `input`, `video`, or `render` groups before altering membership.
 
 ### 5) Make text boot the default
 
