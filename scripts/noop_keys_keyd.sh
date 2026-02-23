@@ -9,11 +9,15 @@ Usage:
   scripts/noop_keys_keyd.sh [--install]
 
 Writes a keyd config that no-ops a set of "escape hatch" keys (Super/Meta, media
-keys, brightness keys, rfkill), then restarts keyd.
+keys, brightness keys, print screen, rfkill), then restarts keyd.
 
 Notes:
 - Requires keyd (https://github.com/rvaiya/keyd). Use --install to install it on Ubuntu.
 - This remaps keys at the Linux input level, so it works on Wayland.
+- keyd creates a virtual pointer device. If your GNOME touchpad is set to
+  send-events='disabled-on-external-mouse', the touchpad can appear disabled
+  across reboots. Fix by forcing send-events='enabled':
+    sudo scripts/force_touchpad_enabled_dconf.sh
 EOF
 }
 
@@ -79,6 +83,9 @@ cat >"$CONFIG_PATH" <<'EOF'
 # Super/Windows key(s)
 leftmeta = noop
 rightmeta = noop
+
+# Print screen
+print = noop
 
 # Brightness keys
 brightnessdown = noop
