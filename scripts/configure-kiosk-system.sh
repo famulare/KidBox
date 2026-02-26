@@ -8,7 +8,7 @@ if [[ $EUID -ne 0 ]]; then
   exec sudo --preserve-env=PATH "$0" "$@"
 fi
 
-KIOSK_USER="${1:-mike-famulare}"
+KIOSK_USER="${1:-toddlerbox}"
 
 make_group() {
   local grp="$1"
@@ -55,23 +55,61 @@ for grp in seat input video render; do
   fi
 done
 
-install -d -m 0755 /etc/systemd/system/getty@tty1.service.d
-cat >/etc/systemd/system/getty@tty1.service.d/autologin.conf <<CONF
-[Service]
-ExecStart=
-ExecStart=-/sbin/agetty --autologin ${KIOSK_USER} --noclear %I \$TERM
-CONF
+ensure_wayland_session() {
+  local session_dir="/usr/share/wayland-sessions"
+  local session_file="${session_dir}/toddlerbox.desktop"
+  install -d -m 0755 "$session_dir"
+  cat <<EOF >"$session_file"
+[Desktop Entry]
+Name=toddlerbox
+Comment=toddlerbox
+Exec=${ROOT_DIR}/scripts/kiosk-session.sh
+Type=Application
+DesktopNames=Cage
+EOF
+  chmod 644 "$session_file"
+  echo "Installed toddlerbox Wayland session at $session_file."
+}
 
-systemctl daemon-reload
-systemctl restart getty@tty1
+configure_gdm_autologin() {
+  local conf_dir=""
+  if [[ -d /etc/gdm3 ]]; then
+    conf_dir="/etc/gdm3"
+  elif [[ -d /etc/gdm ]]; then
+    conf_dir="/etc/gdm"
+  fi
 
-systemctl set-default multi-user.target
-if systemctl list-unit-files | rg -q '^gdm\.service'; then
-  systemctl disable gdm || true
-fi
-if systemctl list-unit-files | rg -q '^gdm3\.service'; then
-  systemctl disable gdm3 || true
-fi
+  if [[ -z "$conf_dir" ]]; then
+    echo "Warning: GDM config directory missing; skipping auto-login setup." >&2
+    return
+  fi
+
+  local conf_path="${conf_dir}/custom.conf"
+  if [[ -f "$conf_path" && ! -f "${conf_path}.bak" ]]; then
+    cp "$conf_path" "${conf_path}.bak"
+  fi
+
+  cat <<EOF >"$conf_path"
+[daemon]
+AutomaticLoginEnable=true
+AutomaticLogin=${KIOSK_USER}
+DefaultSession=toddlerbox
+EOF
+  chmod 644 "$conf_path"
+  echo "Configured GDM auto-login for ${KIOSK_USER} ($conf_path)."
+}
+
+ensure_wayland_session
+configure_gdm_autologin
+
+for svc in gdm gdm3; do
+  if systemctl list-unit-files | rg -q \"^${svc}\\.service\"; then
+    systemctl unmask \"${svc}\" >/dev/null 2>&1 || true
+    systemctl enable \"${svc}\" || true
+  fi
+done
+
+systemctl set-default graphical.target
 
 # Force GNOME touchpad send-events='enabled' so the trackpad stays active in the kiosk session.
 if [[ -x "$ROOT_DIR/scripts/force_touchpad_enabled_dconf.sh" ]]; then

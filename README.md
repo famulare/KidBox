@@ -262,22 +262,17 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.typing
 
 ---
 
-## Cage TTY Kiosk Setup (Deployment)
+## Cage GDM Kiosk Setup (Deployment)
 
-ToddlerBox default deployment is a `tty1` autologin kiosk flow:
-
-1. Boot to `multi-user.target`
-2. Autologin user on `tty1`
-3. Start `scripts/kiosk-session.sh`
-4. `kiosk-session.sh` launches `cage -- ./scripts/run-stable.sh`
+ToddlerBox default deployment now boots into a GDM-controlled session where the `toddlerbox` user is automatically logged into a dedicated `toddlerbox` Wayland session that runs `scripts/kiosk-session.sh` inside Cage.
 
 ### 1) Install system packages
 
 ```bash
 sudo apt update
-sudo apt install -y cage seatd
+sudo apt install -y cage seatd dconf-cli
 sudo systemctl enable --now seatd
-sudo usermod -aG seat,input,video,render <user>
+sudo usermod -aG seat,input,video,render toddlerbox
 ```
 
 Or run the repo helper:
@@ -286,7 +281,7 @@ Or run the repo helper:
 ./scripts/configure-kiosk-system.sh <user>
 ```
 
-This helper now installs `dconf-cli` and runs `scripts/force_touchpad_enabled_dconf.sh`, so GNOME's touchpad `send-events` stays locked to `enabled` when the kiosk session launches.
+This helper now installs the toddlerbox Wayland session, configures `/etc/gdm3/custom.conf` for automatic login, and enables GDM so the kiosk session starts immediately after boot.
 
 Note: after group changes, log out/in or reboot before testing kiosk startup.
 
@@ -304,62 +299,50 @@ This runs a lockfile-based install:
 UV_CACHE_DIR=/tmp/uv-cache uv sync --frozen --no-dev
 ```
 
-### 3) Configure `tty1` autologin
+### 3) Create the toddlerbox Wayland session
 
-Create `/etc/systemd/system/getty@tty1.service.d/autologin.conf`:
+Create `/usr/share/wayland-sessions/toddlerbox.desktop` with the following contents:
 
 ```ini
-[Service]
-ExecStart=
-ExecStart=-/sbin/agetty --autologin <user> --noclear %I $TERM
+[Desktop Entry]
+Name=toddlerbox
+Comment=toddlerbox
+Exec=/home/<user>/git/ToddlerBox/scripts/kiosk-session.sh
+Type=Application
+DesktopNames=Cage
 ```
 
-Then apply:
+This session entry is what GDM launches for the kiosk user so that Cage starts with the launcher on login.
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart getty@tty1
+### 4) Configure GDM automatic login
+
+Edit `/etc/gdm3/custom.conf` (or `/etc/gdm/custom.conf` on some systems) and replace the `[daemon]` block with:
+
+```ini
+[daemon]
+AutomaticLoginEnable=true
+AutomaticLogin=toddlerbox
+DefaultSession=toddlerbox
 ```
 
-### 4) Start kiosk session from shell login
+After editing, `sudo systemctl enable --now gdm3` ensures the display manager is running at boot.
 
-Add this block to `~/.profile` (replace `<user>` as needed):
+### 5) Parent escape behavior
 
-```bash
-if [ -z "${SSH_TTY:-}" ] && [ "${XDG_VTNR:-}" = "1" ] && [ "${TODDLERBOX_KIOSK_STARTED:-0}" = "0" ]; then
-  export TODDLERBOX_KIOSK_STARTED=1
-  exec /home/<user>/git/ToddlerBox/scripts/kiosk-session.sh
-fi
-```
-
-`scripts/kiosk-session.sh` now fails open to a tty shell if Cage cannot start, instead of hard-looping the login session.
-`scripts/configure-kiosk-system.sh` also creates any missing `seat`, `input`, `video`, or `render` groups before altering membership.
-
-### 5) Make text boot the default
-
-```bash
-sudo systemctl set-default multi-user.target
-sudo systemctl disable gdm
-```
-
-### 6) Parent escape behavior
-
-`Ctrl + Alt + Home` exits launcher, which closes Cage and returns to a shell on `tty1`.
+`Ctrl + Alt + Home` exits the launcher, closes Cage, and returns parents to a shell on `tty1` (or follows the action configured in `system.parent_escape_action`).
 
 ### Rollback to GNOME boot
 
+1. Remove `/usr/share/wayland-sessions/toddlerbox.desktop` (or rename it so GDM falls back to a standard session).
+2. Restore `/etc/gdm3/custom.conf` with `AutomaticLoginEnable=false` (use the `.bak` copy if it exists).
+3. Run:
+
 ```bash
 sudo systemctl set-default graphical.target
-sudo systemctl enable gdm
+sudo systemctl enable gdm3
 ```
 
-Remove the kiosk stanza from `~/.profile`, then reboot.
-
-Or run:
-
-```bash
-./scripts/rollback-kiosk-system.sh
-```
+4. Reboot and log in through the GNOME greeter as usual.
 
 ---
 
