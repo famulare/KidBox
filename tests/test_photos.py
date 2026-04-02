@@ -1,7 +1,11 @@
 from datetime import datetime
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
+import pygame
+
+from toddlerbox.photos.app import PhotosApp
 from toddlerbox.photos.app import _is_image, _list_photos, _load_exif_cache, _parse_exif_datetime, _thumb_name
 
 
@@ -78,3 +82,60 @@ def test_load_exif_cache_replaces_incompatible_format(tmp_path):
     assert loaded == {}
     rewritten = json.loads(cache_path.read_text(encoding="utf-8"))
     assert rewritten == {}
+
+
+def _make_photos_state_app() -> PhotosApp:
+    app = PhotosApp.__new__(PhotosApp)
+    app.pointer_down = False
+    app.drag_start = None
+    app.drag_delta = (0, 0)
+    app.strip_drag_last_y = None
+    app.strip_pressed_index = None
+    app.strip_drag_distance = 0
+    app.logger = SimpleNamespace(info=lambda *_args, **_kwargs: None)
+    return app
+
+
+def test_should_reset_for_key_ignores_escape():
+    app = _make_photos_state_app()
+    event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, mod=0)
+    assert app._should_reset_for_key(event) is False
+
+
+def test_should_reset_for_key_matches_function_shortcut():
+    app = _make_photos_state_app()
+    event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_F11, mod=0)
+    assert app._should_reset_for_key(event) is True
+
+
+def test_should_reset_for_key_matches_modified_chord():
+    app = _make_photos_state_app()
+    event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_a, mod=pygame.KMOD_CTRL)
+    assert app._should_reset_for_key(event) is True
+
+
+def test_handle_resume_resets_pointer_state_and_clears_motion(monkeypatch):
+    app = _make_photos_state_app()
+    app.pointer_down = True
+    app.drag_start = (100, 200)
+    app.drag_delta = (50, 4)
+    app.strip_drag_last_y = 75
+    app.strip_pressed_index = 3
+    app.strip_drag_distance = 22
+
+    cleared: list[int] = []
+
+    monkeypatch.setattr(pygame.event, "clear", lambda events: cleared.extend(events))
+
+    app._handle_resume("test")
+
+    assert app.pointer_down is False
+    assert app.drag_start is None
+    assert app.drag_delta == (0, 0)
+    assert app.strip_drag_last_y is None
+    assert app.strip_pressed_index is None
+    assert app.strip_drag_distance == 0
+    assert pygame.MOUSEMOTION in cleared
+    assert pygame.MOUSEBUTTONDOWN in cleared
+    assert pygame.MOUSEBUTTONUP in cleared
+    assert pygame.MOUSEWHEEL in cleared

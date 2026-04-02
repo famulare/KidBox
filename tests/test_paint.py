@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pygame
 
@@ -230,3 +231,50 @@ def test_handle_pointer_down_scaled_canvas_starts_stroke(monkeypatch):
     assert app._handle_pointer_down(resolved) is False
     assert app.current_stroke is not None
     assert app.current_stroke.points == [(700, 520)]
+
+
+def test_should_reset_for_key_ignores_escape():
+    app = _make_pointer_resolution_app()
+    event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, mod=0)
+    assert app._should_reset_for_key(event) is False
+
+
+def test_should_reset_for_key_matches_function_shortcut():
+    app = _make_pointer_resolution_app()
+    event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_F11, mod=0)
+    assert app._should_reset_for_key(event) is True
+
+
+def test_should_reset_for_key_matches_modified_chord():
+    app = _make_pointer_resolution_app()
+    event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_a, mod=pygame.KMOD_ALT)
+    assert app._should_reset_for_key(event) is True
+
+
+def test_handle_resume_resets_pointer_state_and_clears_motion(monkeypatch):
+    app = _make_pointer_resolution_app()
+    app.logger = SimpleNamespace(info=lambda *_args, **_kwargs: None)
+    app.pointer_down = True
+    app.current_stroke = object()
+    app.recall_strip_drag_last_y = 50
+    app.recall_pressed_index = 2
+    app.recall_drag_distance = 17
+    app.last_autosave = 0.0
+
+    cleared: list[int] = []
+
+    monkeypatch.setattr("toddlerbox.paint.app.time.monotonic", lambda: 123.0)
+    monkeypatch.setattr(pygame.event, "clear", lambda events: cleared.extend(events))
+
+    app._handle_resume("test")
+
+    assert app.pointer_down is False
+    assert app.current_stroke is None
+    assert app.recall_strip_drag_last_y is None
+    assert app.recall_pressed_index is None
+    assert app.recall_drag_distance == 0
+    assert app.last_autosave == 123.0
+    assert pygame.MOUSEMOTION in cleared
+    assert pygame.MOUSEBUTTONDOWN in cleared
+    assert pygame.MOUSEBUTTONUP in cleared
+    assert pygame.MOUSEWHEEL in cleared

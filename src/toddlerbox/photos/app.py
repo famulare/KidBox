@@ -27,12 +27,47 @@ from toddlerbox.ui.common import (
     Button,
     create_fullscreen_window,
     draw_home_button,
+    ignore_system_shortcut,
     is_primary_pointer_event,
     pointer_event_pos,
 )
 
 WINDOW_FOCUS_GAINED = getattr(pygame, "WINDOWFOCUSGAINED", None)
+WINDOW_FOCUS_LOST = getattr(pygame, "WINDOWFOCUSLOST", None)
+WINDOW_RESTORED = getattr(pygame, "WINDOWRESTORED", None)
+WINDOW_SIZE_CHANGED = getattr(pygame, "WINDOWSIZECHANGED", None)
 APP_DID_ENTER_FOREGROUND = getattr(pygame, "APP_DIDENTERFOREGROUND", None)
+APP_DID_ENTER_BACKGROUND = getattr(pygame, "APP_DIDENTERBACKGROUND", None)
+
+_INPUT_RESET_EVENTS = {
+    event
+    for event in (
+        WINDOW_FOCUS_GAINED,
+        WINDOW_FOCUS_LOST,
+        WINDOW_RESTORED,
+        WINDOW_SIZE_CHANGED,
+        APP_DID_ENTER_FOREGROUND,
+        APP_DID_ENTER_BACKGROUND,
+    )
+    if event is not None
+}
+_NOISY_KEY_MODS = (
+    pygame.KMOD_CTRL
+    | pygame.KMOD_ALT
+    | pygame.KMOD_META
+    | pygame.KMOD_GUI
+    | getattr(pygame, "KMOD_ALTGR", 0)
+)
+_MODIFIER_KEYS = {
+    getattr(pygame, "K_LCTRL", None),
+    getattr(pygame, "K_RCTRL", None),
+    getattr(pygame, "K_LALT", None),
+    getattr(pygame, "K_RALT", None),
+    getattr(pygame, "K_LGUI", None),
+    getattr(pygame, "K_RGUI", None),
+    getattr(pygame, "K_LMETA", None),
+    getattr(pygame, "K_RMETA", None),
+}
 
 
 @dataclass
@@ -245,14 +280,32 @@ class PhotosApp:
         self.strip_drag_last_y = None
         self.strip_pressed_index = None
         self.strip_drag_distance = 0
-        pointer_events = [pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP]
+        pointer_events = [
+            pygame.MOUSEMOTION,
+            pygame.MOUSEBUTTONDOWN,
+            pygame.MOUSEBUTTONUP,
+            pygame.MOUSEWHEEL,
+        ]
         finger_down = getattr(pygame, "FINGERDOWN", None)
         finger_up = getattr(pygame, "FINGERUP", None)
         if finger_down is not None:
             pointer_events.append(finger_down)
         if finger_up is not None:
             pointer_events.append(finger_up)
+        if FINGERMOTION is not None:
+            pointer_events.append(FINGERMOTION)
         pygame.event.clear(pointer_events)
+
+    def _should_reset_for_key(self, event: pygame.event.Event) -> bool:
+        if event.type != pygame.KEYDOWN:
+            return False
+        if event.key == pygame.K_ESCAPE:
+            return False
+        if ignore_system_shortcut(event):
+            return True
+        if event.key in _MODIFIER_KEYS:
+            return True
+        return bool(event.mod & _NOISY_KEY_MODS)
 
     def relaunch(self, screen: pygame.Surface, screen_rect: pygame.Rect, clock: pygame.time.Clock) -> None:
         self.screen = screen
@@ -472,8 +525,11 @@ class PhotosApp:
                 self._handle_resume("frame-time gap")
             last_frame_time = now
             for event in pygame.event.get():
-                if event.type in {WINDOW_FOCUS_GAINED, APP_DID_ENTER_FOREGROUND}:
-                    self._handle_resume("focus/background event")
+                if event.type in _INPUT_RESET_EVENTS:
+                    self._handle_resume("window/input state event")
+                    continue
+                if self._should_reset_for_key(event):
+                    self._handle_resume("ignored keyboard shortcut")
                     continue
                 if event.type in {
                     pygame.MOUSEMOTION,
