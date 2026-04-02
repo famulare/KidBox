@@ -10,6 +10,7 @@ from toddlerbox.paint.app import _list_archives
 from toddlerbox.paint.app import _rollover_latest_snapshot
 from toddlerbox.paint.app import _save_surface_atomic
 from toddlerbox.paint.app import PaintApp
+from toddlerbox.ui.common import Button
 from toddlerbox.ui.common import is_primary_pointer_event
 
 
@@ -145,17 +146,87 @@ def test_save_surface_atomic_cleans_tmp_file_on_failure(monkeypatch, tmp_path):
     assert not tmp_pathname.exists()
 
 
-def test_event_pos_scales_mouse_when_window_size_differs(monkeypatch):
+def _make_pointer_resolution_app() -> PaintApp:
     app = PaintApp.__new__(PaintApp)
     app.screen_rect = pygame.Rect(0, 0, 1920, 1080)
+    app.recall_open = False
+    app.current_stroke = None
+    app.recall_items = []
+    app.recall_strip_rect = pygame.Rect(0, 0, 0, 0)
+    app.action_buttons = {
+        "home": Button(rect=pygame.Rect(1800, 20, 80, 80)),
+        "new": Button(rect=pygame.Rect(20, 900, 220, 60)),
+        "undo": Button(rect=pygame.Rect(20, 970, 105, 60)),
+        "redo": Button(rect=pygame.Rect(135, 970, 105, 60)),
+        "recall": Button(rect=pygame.Rect(20, 720, 220, 160)),
+    }
+    app.tool_buttons = {"round": Button(rect=pygame.Rect(20, 20, 100, 100))}
+    app.size_buttons = {6: Button(rect=pygame.Rect(20, 240, 100, 60))}
+    app.palette_buttons = [Button(rect=pygame.Rect(20, 320, 100, 40))]
+    app.canvas_rect = pygame.Rect(260, 20, 1640, 1040)
+    return app
+
+
+def test_event_pos_prefers_raw_mouse_position_for_home_button(monkeypatch):
+    app = _make_pointer_resolution_app()
+    monkeypatch.setattr(pygame.display, "get_window_size", lambda: (1280, 720))
+    event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=(1840, 60), button=1)
+    assert app._event_pos(event) == (1840, 60)
+
+
+def test_event_pos_prefers_scaled_mouse_position_for_canvas(monkeypatch):
+    app = _make_pointer_resolution_app()
     monkeypatch.setattr(pygame.display, "get_window_size", lambda: (1280, 720))
     event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=(640, 360), button=1)
     assert app._event_pos(event) == (960, 540)
 
 
 def test_event_pos_keeps_touch_emulated_mouse_unscaled(monkeypatch):
-    app = PaintApp.__new__(PaintApp)
-    app.screen_rect = pygame.Rect(0, 0, 1920, 1080)
+    app = _make_pointer_resolution_app()
     monkeypatch.setattr(pygame.display, "get_window_size", lambda: (1280, 720))
     event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=(640, 360), button=1, touch=True)
     assert app._event_pos(event) == (640, 360)
+
+
+def test_event_pos_keeps_finger_event_unscaled(monkeypatch):
+    app = _make_pointer_resolution_app()
+    monkeypatch.setattr(pygame.display, "get_window_size", lambda: (1280, 720))
+    finger_down = getattr(pygame, "FINGERDOWN", None)
+    if finger_down is None:
+        return
+    event = pygame.event.Event(finger_down, x=0.5, y=0.5, finger_id=1)
+    assert app._event_pos(event) == (960, 540)
+
+
+def test_handle_pointer_down_home_returns_true():
+    app = _make_pointer_resolution_app()
+    assert app._handle_pointer_down((1840, 60)) is True
+
+
+def test_handle_pointer_down_new_archives_and_resets(monkeypatch):
+    app = _make_pointer_resolution_app()
+    calls: list[str] = []
+
+    monkeypatch.setattr(app, "_archive_current", lambda: calls.append("archive"))
+    monkeypatch.setattr(app, "_reset_canvas", lambda: calls.append("reset"))
+
+    assert app._handle_pointer_down((40, 920)) is False
+    assert calls == ["archive", "reset"]
+
+
+def test_handle_pointer_down_scaled_canvas_starts_stroke(monkeypatch):
+    app = _make_pointer_resolution_app()
+    app.current_tool = "round"
+    app.current_size = 6
+    app.current_color = (1, 2, 3)
+    app.undo_stack = []
+    app.redo_stack = []
+    app.canvas_surface = pygame.Surface(app.canvas_rect.size)
+
+    monkeypatch.setattr(app, "_push_undo", lambda: None)
+
+    resolved = app._resolve_pointer_pos((640, 360), (960, 540))
+    assert resolved == (960, 540)
+    assert app._handle_pointer_down(resolved) is False
+    assert app.current_stroke is not None
+    assert app.current_stroke.points == [(700, 520)]

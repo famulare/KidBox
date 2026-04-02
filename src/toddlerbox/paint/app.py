@@ -562,7 +562,61 @@ class PaintApp:
             is_finger_event = is_finger_event or event.type == FINGERMOTION
         if window_size == self.screen_rect.size or is_finger_event or is_touch_emulated_mouse:
             return raw_pos
-        return _scale_input_pos(raw_pos, window_size, self.screen_rect.size)
+        scaled_pos = _scale_input_pos(raw_pos, window_size, self.screen_rect.size)
+        return self._resolve_pointer_pos(raw_pos, scaled_pos)
+
+    def _pointer_target(self, pos: Point) -> Optional[Tuple[int, str]]:
+        if self.recall_open:
+            if self._recall_index_at_pos(pos) is not None:
+                return (0, "recall-item")
+            if self.recall_strip_rect.collidepoint(pos):
+                return (1, "recall-strip")
+            return None
+
+        button_order = (
+            ("home", self.action_buttons.get("home")),
+            ("new", self.action_buttons.get("new")),
+            ("undo", self.action_buttons.get("undo")),
+            ("redo", self.action_buttons.get("redo")),
+            ("recall", self.action_buttons.get("recall")),
+        )
+        for name, button in button_order:
+            if button is not None and button.hit(pos):
+                return (0, name)
+
+        for tool, button in self.tool_buttons.items():
+            if button.hit(pos):
+                return (1, f"tool:{tool}")
+
+        for size, button in self.size_buttons.items():
+            if button.hit(pos):
+                return (1, f"size:{size}")
+
+        for idx, button in enumerate(self.palette_buttons):
+            if button.hit(pos):
+                return (1, f"palette:{idx}")
+
+        if self.canvas_rect.collidepoint(pos):
+            return (2, "canvas")
+        return None
+
+    def _resolve_pointer_pos(self, raw_pos: Point, scaled_pos: Point) -> Point:
+        if raw_pos == scaled_pos:
+            return raw_pos
+
+        raw_target = self._pointer_target(raw_pos)
+        scaled_target = self._pointer_target(scaled_pos)
+        if raw_target is None:
+            return scaled_pos
+        if scaled_target is None:
+            return raw_pos
+        if raw_target[0] != scaled_target[0]:
+            return raw_pos if raw_target[0] < scaled_target[0] else scaled_pos
+        if raw_target[1] == scaled_target[1] == "canvas":
+            return scaled_pos
+        if self.current_stroke is not None and scaled_target[1] == "canvas":
+            return scaled_pos
+        return raw_pos
 
 
     def _push_undo(self) -> None:

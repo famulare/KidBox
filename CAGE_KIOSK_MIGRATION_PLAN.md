@@ -123,7 +123,7 @@ Packages (Ubuntu):
 
 Validation commands:
 1. `cage --version`
-2. `UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.launcher`
+2. `uv run python -m toddlerbox.launcher`
 3. `cage -- ./scripts/run-stable.sh` (manual smoke test from tty)
 
 ## Phase 5: Make Cage the Default Boot Experience

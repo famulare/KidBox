@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}"
+source "${ROOT_DIR}/scripts/lib/uv-env.sh"
 export PYGAME_HIDE_SUPPORT_PROMPT=1
 export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-wayland}"
 export XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-wayland}"

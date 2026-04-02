@@ -10,14 +10,14 @@
 - `toddlerbox_design_contract.md` is the source of truth for product requirements.
 
 ## Build, Test, and Development Commands
-Use `uv` with the local `.venv` and a writable cache directory.
-- `UV_CACHE_DIR=/tmp/uv-cache uv venv .venv` — create or refresh the virtualenv.
-- `UV_CACHE_DIR=/tmp/uv-cache uv pip install -e ".[dev]"` — install in editable mode with test deps.
-- `UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.launcher` — run launcher.
-- `UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.paint` — run paint.
-- `UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.photos` — run photos.
-- `UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.typing` — run typing.
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` — run unit tests.
+Use `uv` with the local `.venv`; the repo scripts now pick a per-user writable cache automatically.
+- `uv venv .venv` — create or refresh the virtualenv.
+- `uv pip install -e ".[dev]"` — install in editable mode with test deps.
+- `uv run python -m toddlerbox.launcher` — run launcher.
+- `uv run python -m toddlerbox.paint` — run paint.
+- `uv run python -m toddlerbox.photos` — run photos.
+- `uv run python -m toddlerbox.typing` — run typing.
+- `uv run pytest` — run unit tests.
 - `./scripts/run-stable.sh` — run launcher with automatic restart/backoff for kiosk-style stability checks.
 
 ## Coding Style & Naming Conventions

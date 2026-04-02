@@ -224,7 +224,7 @@ assets/icons/
 Development uses `uv` with a local `.venv`:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv sync
+uv sync
 ```
 
 ## Convenience Script
@@ -254,10 +254,10 @@ For kiosk-style resilience testing, use:
 From the repo root:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.launcher
-UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.paint
-UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.photos
-UV_CACHE_DIR=/tmp/uv-cache uv run python -m toddlerbox.typing
+uv run python -m toddlerbox.launcher
+uv run python -m toddlerbox.paint
+uv run python -m toddlerbox.photos
+uv run python -m toddlerbox.typing
 ```
 
 ---
@@ -296,7 +296,7 @@ From repo root:
 This runs a lockfile-based install:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv sync --frozen --no-dev
+uv sync --frozen --no-dev
 ```
 
 ### 3) Create the toddlerbox Wayland session
@@ -349,7 +349,7 @@ sudo systemctl enable gdm3
 ## Tests
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run pytest
+uv run pytest
 ```
 
 ---
